@@ -121,6 +121,30 @@ Rode testes:
 pytest
 ```
 
+## Diagnostico DOC SP
+
+Para diagnosticar o Diario Oficial da Cidade de Sao Paulo via APILIB:
+
+```powershell
+python scripts/diagnose_doc_sp.py
+```
+
+Na VPS:
+
+```bash
+cd /opt/hermes
+python scripts/diagnose_doc_sp.py
+```
+
+Via Docker, preservando o relatorio no host:
+
+```bash
+cd /opt/hermes
+docker compose run --rm -v /opt/hermes/logs:/app/logs api python scripts/diagnose_doc_sp.py
+```
+
+O script usa `SP_DOE_CONSUMER_KEY` e `SP_DOE_CONSUMER_SECRET` do `.env`, mascara credenciais sensiveis e salva o relatorio em `logs/doc_sp_diagnosis_YYYYMMDD_HHMMSS.log`.
+
 ## Principios
 
 - Nunca perder informacao: payload bruto, texto original, texto limpo, metadados e versoes sao preservados.
@@ -128,4 +152,3 @@ pytest
 - Classificacao desacoplada: a integracao futura com DeepSeek entra atras de uma interface propria.
 - Banco como memoria historica: PostgreSQL e o nucleo operacional do HERMES.
 - HERMES independente: nenhum componente de outro projeto deve ser compartilhado ou misturado.
-
