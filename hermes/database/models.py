@@ -209,3 +209,71 @@ class PmspLicitacao(Base):
     raw_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class TceSpMunicipio(Base):
+    __tablename__ = "tcesp_municipios"
+    __table_args__ = (
+        UniqueConstraint("municipio_slug", name="uq_tcesp_municipios_slug"),
+        Index("ix_tcesp_municipios_extenso", "municipio_extenso"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    municipio_slug: Mapped[str] = mapped_column(String(160), nullable=False)
+    municipio_extenso: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class TceSpDespesa(Base):
+    __tablename__ = "tcesp_despesas"
+    __table_args__ = (
+        Index("ix_tcesp_despesas_municipio_periodo", "municipio_slug", "exercicio", "mes_numero"),
+        Index("ix_tcesp_despesas_fornecedor", "nm_fornecedor"),
+        Index("ix_tcesp_despesas_orgao", "orgao"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    municipio_slug: Mapped[str] = mapped_column(String(160), nullable=False)
+    municipio_extenso: Mapped[str | None] = mapped_column(String(255))
+    exercicio: Mapped[int] = mapped_column(Integer, nullable=False)
+    mes_numero: Mapped[int] = mapped_column(Integer, nullable=False)
+    mes_nome: Mapped[str | None] = mapped_column(String(40))
+    orgao: Mapped[str | None] = mapped_column(String(500))
+    evento: Mapped[str | None] = mapped_column(String(120))
+    nr_empenho: Mapped[str | None] = mapped_column(String(120))
+    id_fornecedor: Mapped[str | None] = mapped_column(String(255))
+    nm_fornecedor: Mapped[str | None] = mapped_column(String(500))
+    dt_emissao_despesa: Mapped[date | None] = mapped_column(Date)
+    vl_despesa: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    raw_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    source: Mapped[str] = mapped_column(String(80), nullable=False, server_default=text("'tcesp'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class TceSpReceita(Base):
+    __tablename__ = "tcesp_receitas"
+    __table_args__ = (
+        Index("ix_tcesp_receitas_municipio_periodo", "municipio_slug", "exercicio", "mes_numero"),
+        Index("ix_tcesp_receitas_orgao", "orgao"),
+        Index("ix_tcesp_receitas_fonte", "ds_fonte_recurso"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    municipio_slug: Mapped[str] = mapped_column(String(160), nullable=False)
+    municipio_extenso: Mapped[str | None] = mapped_column(String(255))
+    exercicio: Mapped[int] = mapped_column(Integer, nullable=False)
+    mes_numero: Mapped[int] = mapped_column(Integer, nullable=False)
+    mes_nome: Mapped[str | None] = mapped_column(String(40))
+    orgao: Mapped[str | None] = mapped_column(String(500))
+    ds_fonte_recurso: Mapped[str | None] = mapped_column(String(500))
+    ds_cd_aplicacao_fixo: Mapped[str | None] = mapped_column(String(500))
+    ds_alinea: Mapped[str | None] = mapped_column(String(500))
+    ds_subalinea: Mapped[str | None] = mapped_column(Text)
+    vl_arrecadacao: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    raw_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    source: Mapped[str] = mapped_column(String(80), nullable=False, server_default=text("'tcesp'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

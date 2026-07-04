@@ -44,6 +44,18 @@ Tabela dedicada para registros normalizados da API PMSP Licitacoes/Dados Abertos
 
 O campo `source_hash` e unico e sustenta o upsert, evitando duplicacao logica entre execucoes de ingestao.
 
+### `tcesp_municipios`
+
+Tabela dedicada aos municipios retornados pela API publica do TCE-SP. Guarda slug oficial, nome extenso, payload bruto em `raw_json` e timestamps.
+
+### `tcesp_despesas`
+
+Tabela operacional para despesas municipais TCE-SP por municipio, exercicio e mes. Guarda orgao, evento, numero de empenho, fornecedor, data de emissao, valor, fonte e payload bruto.
+
+### `tcesp_receitas`
+
+Tabela operacional para receitas municipais TCE-SP por municipio, exercicio e mes. Guarda orgao, fonte de recurso, aplicacao, alinea, subalinea, valor arrecadado, fonte e payload bruto.
+
 ## Indices iniciais
 
 - Fonte e identificador externo.
@@ -54,6 +66,9 @@ O campo `source_hash` e unico e sustenta o upsert, evitando duplicacao logica en
 - `GIN` para tags, palavras-chave e JSONB.
 - `pg_trgm` para objeto e texto limpo.
 - `pmsp_licitacoes`: indices em `ano`, `orgao`, `numero_processo`, `numero_contrato` e unicidade em `source_hash`.
+- `tcesp_municipios`: unicidade em `municipio_slug` e indice em `municipio_extenso`.
+- `tcesp_despesas`: indices em municipio/exercicio/mes, fornecedor e orgao.
+- `tcesp_receitas`: indices em municipio/exercicio/mes, orgao e fonte de recurso.
 
 ## Evolucao recomendada
 

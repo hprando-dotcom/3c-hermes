@@ -2,7 +2,7 @@
 
 HERMES e uma plataforma operacional de inteligencia para rastrear publicacoes oficiais relacionadas a engenharia e infraestrutura.
 
-Este repositorio contem a fundacao da Fase 1. Ele nao e uma interface grafica, nao e um CRUD tradicional e nao depende do computador local para operar. O desenho alvo e execucao continua em VPS, com PostgreSQL, coletores, parser, classificador desacoplado, scheduler e API operacional minima.
+Este repositorio contem a fundacao da Fase 1 e os primeiros modulos consultaveis no navegador. Ele nao e um CRUD tradicional e nao depende do computador local para operar. O desenho alvo e execucao continua em VPS, com PostgreSQL, coletores, parser, classificador desacoplado, scheduler, API operacional e telas simples para consulta.
 
 ## Objetivos da Fase 1
 
@@ -11,7 +11,7 @@ Este repositorio contem a fundacao da Fase 1. Ele nao e uma interface grafica, n
 - PostgreSQL preparado com migracao inicial.
 - Modelagem inicial para fontes, publicacoes, versoes, arquivos, empresas, classificacoes e execucoes de coleta.
 - Modulos `collector`, `parser`, `classifier`, `scheduler`, `database`, `api`, `services`, `config`, `logs`, `scripts` e `docs`.
-- Endpoints operacionais `/health` e `/version`.
+- Endpoints operacionais `/`, `/status`, `/health`, `/version`, `/openapi.json` e `/docs`.
 - Configuracao por `.env`.
 - Logging estruturado.
 - Scheduler e collector preparados para evolucao.
@@ -20,7 +20,7 @@ Este repositorio contem a fundacao da Fase 1. Ele nao e uma interface grafica, n
 ## Stack
 
 - Python 3.12
-- FastAPI somente para API operacional
+- FastAPI para API operacional e telas HTML simples
 - SQLAlchemy 2
 - Alembic
 - PostgreSQL 16
@@ -69,8 +69,10 @@ docker compose up --build
 Verifique a API operacional:
 
 ```powershell
+curl http://localhost:8000/
 curl http://localhost:8000/health
 curl http://localhost:8000/version
+curl http://localhost:8000/openapi.json
 ```
 
 ## Servicos no Compose
@@ -82,10 +84,29 @@ curl http://localhost:8000/version
 
 ## Endpoints
 
+- `GET /`: tela inicial HERMES.
+- `GET /status`: status operacional, conexao com banco e totais por base.
 - `GET /health`: status do servico e conectividade com banco.
 - `GET /version`: nome, versao e ambiente.
+- `GET /docs`: Swagger UI.
+- `GET /openapi.json`: contrato OpenAPI.
 
-O FastAPI Docs UI foi desabilitado de proposito para respeitar a premissa de nao criar interface grafica. O contrato OpenAPI permanece em `/openapi.json`.
+Telas de consulta:
+
+- `GET /pmsp`: consulta PMSP Licitacoes.
+- `GET /pmsp/resumo`: resumo PMSP Licitacoes.
+- `GET /tcesp`: painel TCE-SP.
+- `GET /tcesp/municipios`: consulta municipios TCE-SP.
+- `GET /tcesp/despesas`: consulta despesas TCE-SP.
+- `GET /tcesp/receitas`: consulta receitas TCE-SP.
+- `GET /tcesp/resumo`: resumo TCE-SP.
+
+Endpoints JSON TCE-SP:
+
+- `GET /api/tcesp/municipios`
+- `GET /api/tcesp/despesas`
+- `GET /api/tcesp/receitas`
+- `GET /api/tcesp/resumo`
 
 ## Desenvolvimento
 
@@ -235,6 +256,48 @@ docker compose run --rm api alembic upgrade head
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/ingest_pmsp_licitacoes.py --ano 2015 --limite 100
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/check_pmsp_licitacoes_db.py
 ```
+
+## TCE-SP Transparencia Municipal
+
+O HERMES tambem possui modulo MVP para a API publica do TCE-SP:
+
+```text
+https://transparencia.tce.sp.gov.br/api/json
+```
+
+Tabelas:
+
+- `tcesp_municipios`
+- `tcesp_despesas`
+- `tcesp_receitas`
+
+Conector:
+
+- `hermes/connectors/tcesp/client.py`
+- `hermes/connectors/tcesp/normalizer.py`
+
+Comandos na VPS:
+
+```bash
+cd /opt/hermes
+git pull
+docker compose build api
+docker compose run --rm api alembic upgrade head
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/ingest_tcesp_municipios.py
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/ingest_tcesp_despesas.py --municipio balsamo --ano 2015 --mes 1 --limite 100
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/ingest_tcesp_receitas.py --municipio balsamo --ano 2015 --mes 1 --limite 100
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/check_tcesp_db.py
+```
+
+Uso no navegador:
+
+```text
+http://IP_PUBLICO_DA_VPS:8000
+http://IP_PUBLICO_DA_VPS:8000/tcesp
+http://IP_PUBLICO_DA_VPS:8000/status
+```
+
+Documentacao: `docs/HERMES_TCESP.md` e `README_USO.md`.
 
 ## Principios
 
