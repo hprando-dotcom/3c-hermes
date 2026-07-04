@@ -13,6 +13,8 @@ from hermes.connectors.pmsp.licitacoes.normalizer import normalize_records
 APILIB_LICITACOES_BASE_URL = "https://gateway.apilib.prefeitura.sp.gov.br/sg/licitacoes/v1"
 APILIB_SOURCE = "apilib"
 APILIB_SOURCE_SYSTEM = "APILIB PMSP Licitacoes"
+CKAN_SOURCE = "ckan"
+CKAN_SOURCE_SYSTEM = "PMSP Dados Abertos CKAN"
 MIN_YEAR = 2005
 MAX_YEAR = 2019
 
@@ -93,10 +95,11 @@ class ApilibLicitacoesClient:
             body = response.text if response.content else ""
             payload = parse_json_or_none(response, body)
             raw_records = extract_records(payload)
-            records = normalize_records(raw_records, ano=ano, source=APILIB_SOURCE, source_system=APILIB_SOURCE_SYSTEM)
+            source, source_system = classify_effective_source(str(response.url), payload)
+            records = normalize_records(raw_records, ano=ano, source=source, source_system=source_system)
             return ApilibLicitacoesResult(
-                source=APILIB_SOURCE,
-                source_system=APILIB_SOURCE_SYSTEM,
+                source=source,
+                source_system=source_system,
                 ano=ano,
                 url=str(response.url),
                 params=params,
@@ -194,3 +197,10 @@ def extract_total(payload: Any, records: list[Mapping[str, Any]]) -> int | None:
             if isinstance(total, int):
                 return total
     return len(records) if records else None
+
+
+def classify_effective_source(url: str, payload: Any) -> tuple[str, str]:
+    serialized = json.dumps(payload, ensure_ascii=False, default=str) if payload is not None else ""
+    if "dados.prefeitura.sp.gov.br" in url or "dados.prefeitura.sp.gov.br" in serialized:
+        return CKAN_SOURCE, CKAN_SOURCE_SYSTEM
+    return APILIB_SOURCE, APILIB_SOURCE_SYSTEM

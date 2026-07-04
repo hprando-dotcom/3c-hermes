@@ -38,6 +38,12 @@ Arquivos associados, como PDFs, anexos e documentos oficiais. A Fase 1 guarda UR
 
 Resultados historicos de classificacao. Mantem provider, modelo, labels, tags, palavras-chave e confianca.
 
+### `pmsp_licitacoes`
+
+Tabela dedicada para registros normalizados da API PMSP Licitacoes/Dados Abertos CKAN. Guarda fonte efetiva, sistema de origem, ano, orgao, modalidade, numeros de licitacao/processo/contrato, objeto, fornecedor, documento do fornecedor, valor, datas, evento, retranca, hash de origem, payload bruto em `raw_json` e timestamps.
+
+O campo `source_hash` e unico e sustenta o upsert, evitando duplicacao logica entre execucoes de ingestao.
+
 ## Indices iniciais
 
 - Fonte e identificador externo.
@@ -47,6 +53,7 @@ Resultados historicos de classificacao. Mantem provider, modelo, labels, tags, p
 - Tipo de publicacao.
 - `GIN` para tags, palavras-chave e JSONB.
 - `pg_trgm` para objeto e texto limpo.
+- `pmsp_licitacoes`: indices em `ano`, `orgao`, `numero_processo`, `numero_contrato` e unicidade em `source_hash`.
 
 ## Evolucao recomendada
 
@@ -54,4 +61,3 @@ Resultados historicos de classificacao. Mantem provider, modelo, labels, tags, p
 - Criar tabelas auxiliares para orgaos e municipios se as consultas exigirem dimensoes normalizadas.
 - Separar armazenamento de arquivos em bucket/S3 compativel.
 - Adicionar filas para parsing pesado, OCR e classificacao por IA.
-

@@ -18,15 +18,14 @@ from hermes.connectors.pmsp.licitacoes.normalizer import (
 
 CKAN_ACTION_BASE_URL = "https://dados.prefeitura.sp.gov.br/api/action"
 CKAN_SOURCE = "ckan"
-CKAN_SOURCE_SYSTEM = "Dados Abertos PMSP CKAN"
+CKAN_SOURCE_SYSTEM = "PMSP Dados Abertos CKAN"
 DISCOVERY_QUERIES = (
-    "licitações",
     "licitacoes",
     "compras",
     "contratos",
     "e-negocios",
-    "e-negócios",
-    "compras e licitações",
+    "enegocios",
+    "compras e licitacoes",
 )
 USEFUL_FORMATS = {"json", "csv", "xls", "xlsx"}
 

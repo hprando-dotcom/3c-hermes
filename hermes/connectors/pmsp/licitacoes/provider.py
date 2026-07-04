@@ -54,7 +54,7 @@ class PmspLicitacoesProviderResult:
         if self.source_used == "apilib":
             return self.apilib
         if self.source_used == "ckan":
-            return self.ckan
+            return self.ckan or self.apilib
         return None
 
     def to_summary(self, include_records: bool = False) -> dict[str, Any]:
@@ -94,7 +94,7 @@ class PmspLicitacoesProvider:
         if apilib_result and apilib_result.ok and not apilib_result.should_fallback:
             return PmspLicitacoesProviderResult(
                 ano=ano,
-                source_used="apilib",
+                source_used=apilib_result.source,
                 source_system=apilib_result.source_system,
                 total=apilib_result.total,
                 record_count=apilib_result.record_count,

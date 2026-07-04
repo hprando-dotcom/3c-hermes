@@ -25,34 +25,31 @@ NORMALIZED_FIELDS = (
 )
 
 FIELD_ALIASES = {
-    "orgao": ("orgao", "órgão", "Orgao", "Órgão", "nome_orgao", "unidade", "secretaria"),
+    "orgao": ("orgao", "Orgao", "nome_orgao", "unidade", "secretaria"),
     "modalidade": ("modalidade", "Modalidade", "tipo_modalidade", "modalidade_licitacao"),
     "numero_licitacao": (
         "numero_licitacao",
-        "número_licitação",
         "numero licitacao",
-        "Número_Licitação",
         "Numero_Licitacao",
         "n_licitacao",
         "licitacao",
     ),
     "numero_processo": (
         "numero_processo",
-        "número_processo",
         "processo",
         "Processo",
         "NumeroProcesso",
-        "Número_Processo",
+        "Numero_Processo",
     ),
     "numero_contrato": (
         "numero_contrato",
         "numero contrato",
         "NumeroContrato",
-        "NúmeroContrato",
+        "NumeroContrato",
         "Contrato",
         "contrato",
     ),
-    "objeto": ("objeto", "Objeto", "descricao_objeto", "descrição_objeto", "descricao", "Descrição"),
+    "objeto": ("objeto", "Objeto", "descricao_objeto", "descricao", "Descricao"),
     "fornecedor": ("fornecedor", "Fornecedor", "contratada", "Contratada", "empresa", "Empresa"),
     "fornecedor_documento": (
         "fornecedor_documento",
@@ -84,7 +81,7 @@ FIELD_ALIASES = {
         "data_publicacao_extrato",
         "publicacao",
     ),
-    "evento": ("evento", "Evento", "tipo_evento", "tipo", "situacao", "Situação"),
+    "evento": ("evento", "Evento", "tipo_evento", "tipo", "situacao", "Situacao"),
     "retranca": ("retranca", "Retranca"),
 }
 

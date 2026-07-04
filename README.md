@@ -217,6 +217,25 @@ Arquivos gerados:
 
 Documentacao: `docs/api/PMSP_LICITACOES_PROVIDER.md`.
 
+Persistencia da Sprint 2C:
+
+- Tabela: `pmsp_licitacoes`.
+- Migration: `alembic/versions/202607040001_create_pmsp_licitacoes.py`.
+- Service: `hermes/services/pmsp_licitacoes_ingestion.py`.
+- Ingestao: `scripts/ingest_pmsp_licitacoes.py`.
+- Check DB: `scripts/check_pmsp_licitacoes_db.py`.
+
+Comandos na VPS:
+
+```bash
+cd /opt/hermes
+git pull
+docker compose build api
+docker compose run --rm api alembic upgrade head
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/ingest_pmsp_licitacoes.py --ano 2015 --limite 100
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/check_pmsp_licitacoes_db.py
+```
+
 ## Principios
 
 - Nunca perder informacao: payload bruto, texto original, texto limpo, metadados e versoes sao preservados.

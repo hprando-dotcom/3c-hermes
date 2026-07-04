@@ -15,6 +15,8 @@ O diagnostico da Sprint 2A mostrou que:
 - o ano `2019` retornou `404` porque o `resource_id` usado pela rota nao foi encontrado;
 - depender de `resource_id` fixo e fragil.
 
+Na Sprint 2C, a nomenclatura foi corrigida: quando a URL real ou o payload indicam `dados.prefeitura.sp.gov.br`, o registro normalizado usa `source="ckan"` e `source_system="PMSP Dados Abertos CKAN"`, mesmo que a chamada tenha passado pelo gateway APILIB.
+
 ## Camadas
 
 ### APILIB
@@ -32,6 +34,7 @@ Responsabilidades:
 - usar `limite` e `offset`;
 - extrair registros quando o payload vier em envelope CKAN;
 - normalizar os registros retornados.
+- classificar a origem efetiva como CKAN quando o gateway APILIB encaminhar para Dados Abertos.
 
 ### Dados Abertos CKAN
 
@@ -168,6 +171,52 @@ Arquivos gerados:
 ```text
 logs/pmsp_licitacoes_provider_YYYYMMDD_HHMMSS.log
 logs/pmsp_licitacoes_provider_summary_YYYYMMDD_HHMMSS.json
+```
+
+## Persistencia
+
+Tabela:
+
+```text
+pmsp_licitacoes
+```
+
+Modelo ORM:
+
+```text
+hermes/database/models.py::PmspLicitacao
+```
+
+Migration:
+
+```text
+alembic/versions/202607040001_create_pmsp_licitacoes.py
+```
+
+Servico:
+
+```text
+hermes/services/pmsp_licitacoes_ingestion.py
+```
+
+O servico usa o provider PMSP Licitacoes, grava registros normalizados, calcula `source_hash`, faz upsert por hash e evita duplicacao logica.
+
+Script de ingestao:
+
+```text
+scripts/ingest_pmsp_licitacoes.py
+```
+
+Exemplo:
+
+```bash
+python scripts/ingest_pmsp_licitacoes.py --ano 2015 --limite 100
+```
+
+Diagnostico de banco:
+
+```text
+scripts/check_pmsp_licitacoes_db.py
 ```
 
 ## Como rodar na VPS

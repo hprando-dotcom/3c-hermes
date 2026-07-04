@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Identity, Index, Integer, Numeric, String, Text, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Identity, Index, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -177,3 +177,35 @@ class ClassificationResultModel(Base):
 
     publication: Mapped[Publication] = relationship(back_populates="classification_results")
 
+
+class PmspLicitacao(Base):
+    __tablename__ = "pmsp_licitacoes"
+    __table_args__ = (
+        UniqueConstraint("source_hash", name="uq_pmsp_licitacoes_source_hash"),
+        Index("ix_pmsp_licitacoes_ano", "ano"),
+        Index("ix_pmsp_licitacoes_orgao", "orgao"),
+        Index("ix_pmsp_licitacoes_numero_processo", "numero_processo"),
+        Index("ix_pmsp_licitacoes_numero_contrato", "numero_contrato"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_system: Mapped[str] = mapped_column(String(255), nullable=False)
+    ano: Mapped[int] = mapped_column(Integer, nullable=False)
+    orgao: Mapped[str | None] = mapped_column(String(500))
+    modalidade: Mapped[str | None] = mapped_column(String(120))
+    numero_licitacao: Mapped[str | None] = mapped_column(String(120))
+    numero_processo: Mapped[str | None] = mapped_column(String(120))
+    numero_contrato: Mapped[str | None] = mapped_column(String(120))
+    objeto: Mapped[str | None] = mapped_column(Text)
+    fornecedor: Mapped[str | None] = mapped_column(String(500))
+    fornecedor_documento: Mapped[str | None] = mapped_column(String(40))
+    valor_contrato: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    data_assinatura: Mapped[date | None] = mapped_column(Date)
+    data_publicacao: Mapped[date | None] = mapped_column(Date)
+    evento: Mapped[str | None] = mapped_column(String(120))
+    retranca: Mapped[str | None] = mapped_column(String(255))
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
