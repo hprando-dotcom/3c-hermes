@@ -156,6 +156,20 @@ Status atual da Sprint 1B:
 
 Mais detalhes em `docs/api/DOC_SP_STATUS.md` e `docs/api/DOC_SP_DIAGNOSTICO.md`.
 
+Scanner profundo da Sprint 1C:
+
+```bash
+cd /opt/hermes
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/scan_doc_sp_deep.py
+```
+
+Esse scanner testa bases alternativas, paths comuns, `GET`, `HEAD` e `OPTIONS`, detecta sinais de WSO2/IIS/JSON e salva:
+
+- `logs/doc_sp_deep_scan_YYYYMMDD_HHMMSS.log`
+- `logs/doc_sp_deep_scan_summary_YYYYMMDD_HHMMSS.json`
+
+Documentacao: `docs/api/DOC_SP_DEEP_SCAN.md`.
+
 ## Principios
 
 - Nunca perder informacao: payload bruto, texto original, texto limpo, metadados e versoes sao preservados.
