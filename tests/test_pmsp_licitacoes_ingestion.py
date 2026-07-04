@@ -133,6 +133,42 @@ def test_parser_handles_single_field_csv_without_header() -> None:
     assert record["data_publicacao"] == "03/02/2005"
 
 
+def test_parser_handles_sparse_ckan_record_with_csv_inside_orgao() -> None:
+    raw = sparse_ckan_csv_record()
+
+    parsed = parse_record(raw)
+    record = normalize_record(raw, ano=2005, source="ckan", source_system="PMSP Dados Abertos CKAN")
+
+    assert detect_record_format(raw) == "single_field_csv"
+    assert parsed["Orgao"] == "SANTANA/TUCURUVI"
+    assert parsed["Modalidade"] == "CONVITE"
+    assert record["orgao"] == "SANTANA/TUCURUVI"
+    assert record["retranca"] == "EEHXADM"
+    assert record["modalidade"] == "CONVITE"
+    assert record["numero_licitacao"] == "123/2005"
+    assert record["numero_processo"] == "PROC-1"
+    assert record["numero_contrato"] == "CT-1"
+    assert record["objeto"] == "Objeto teste"
+
+
+def test_debug_and_ingestion_pipeline_normalize_same_sparse_csv_record() -> None:
+    raw = sparse_ckan_csv_record()
+
+    debug_record = normalize_record(raw, ano=2005, source="ckan", source_system="PMSP Dados Abertos CKAN")
+    ingestion_records = normalize_records([raw], ano=2005, source="ckan", source_system="PMSP Dados Abertos CKAN")
+
+    assert ingestion_records == [debug_record]
+
+    persisted = record_to_model_values(ingestion_records[0], build_source_hash(ingestion_records[0]))
+    assert persisted["orgao"] == "SANTANA/TUCURUVI"
+    assert persisted["modalidade"] == "CONVITE"
+    assert persisted["numero_processo"] == "PROC-1"
+    assert persisted["numero_contrato"] == "CT-1"
+    assert str(persisted["valor_contrato"]) == "1000.00"
+    assert str(persisted["data_assinatura"]) == "2005-02-01"
+    assert str(persisted["data_publicacao"]) == "2005-02-03"
+
+
 def test_build_source_hash_is_stable_for_same_identity() -> None:
     record_a = {
         "source": "ckan",
@@ -218,3 +254,25 @@ class FakeSession:
 
     def flush(self):
         self.flushed = True
+
+
+def sparse_ckan_csv_record() -> dict[str, object]:
+    return {
+        "_id": 1,
+        "Orgao": (
+            "SANTANA/TUCURUVI,EEHXADM,CONVITE,123/2005,PROC-1,Objeto teste,Fornecedor SA,"
+            "00.000.000/0001-00,1000,CT-1,01/02/2005,03/02/2005,EXTRATO"
+        ),
+        "Retranca": None,
+        "Modalidade": None,
+        "Numero_Licitacao": None,
+        "Numero_Processo": None,
+        "Objeto": None,
+        "Fornecedor": None,
+        "Fornecedor_Documento": None,
+        "ValorContrato": None,
+        "NumeroContrato": None,
+        "DataAssinaturaExtrato": None,
+        "DataPublicacaoExtrato": None,
+        "Evento": None,
+    }

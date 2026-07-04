@@ -41,6 +41,23 @@ FALLBACK_CSV_COLUMNS = (
     "Evento",
 )
 
+CSV_CONTAINER_FIELD_KEYS = {
+    "arquivo",
+    "content",
+    "linha",
+    "nomedoorgao",
+    "orgao",
+    "record",
+    "records",
+    "registro",
+    "value",
+}
+
+PARSER_METADATA_KEYS = {
+    "extracsvcolumns",
+    "rawcsv",
+}
+
 FIELD_ALIASES = {
     "orgao": ("orgao", "Orgao", "Nome do Orgao", "nome_orgao", "unidade", "secretaria"),
     "modalidade": ("modalidade", "Modalidade", "tipo_modalidade", "modalidade_licitacao"),
@@ -145,14 +162,21 @@ def detect_record_format(record: Mapping[str, Any] | str) -> str:
             return "single_field_csv"
         return "other"
 
-    non_id_items = [(key, value) for key, value in record.items() if normalize_key(key) != "id"]
+    non_id_items = [
+        (key, value)
+        for key, value in record.items()
+        if normalize_key(key) != "id" and normalize_key(key) not in PARSER_METADATA_KEYS
+    ]
     if len(non_id_items) == 1 and isinstance(non_id_items[0][1], str) and "\n" in non_id_items[0][1] and looks_like_csv(non_id_items[0][1]):
         return "csv_embedded_json"
     if len(non_id_items) == 1 and isinstance(non_id_items[0][1], str) and looks_like_csv(non_id_items[0][1]):
         return "single_field_csv"
+    sparse_csv = sparse_single_csv_value(non_id_items)
+    if sparse_csv:
+        return "csv_embedded_json" if "\n" in sparse_csv else "single_field_csv"
     if record_has_expected_fields(record):
         return "json_structured"
-    if any(isinstance(value, str) and "\n" in value and looks_like_csv(value) for value in record.values()):
+    if any(isinstance(value, str) and "\n" in value and looks_like_csv(value) for _, value in non_id_items):
         return "csv_embedded_json"
     return "json_structured" if len(record) > 1 else "other"
 
@@ -187,7 +211,7 @@ def expand_record(record: Mapping[str, Any] | str) -> list[dict[str, Any] | str]
         for row in rows:
             row["_raw_csv"] = csv_text
         return rows or [parse_record(record)]
-    return [parse_record(record)]
+    return [record]
 
 
 def parse_csv_records(value: Any) -> list[dict[str, Any]]:
@@ -259,11 +283,29 @@ def read_csv_rows(value: str) -> list[list[str]]:
 
 def first_csv_value(record: Mapping[str, Any]) -> str:
     for key, value in record.items():
-        if normalize_key(key) == "id":
+        normalized_key = normalize_key(key)
+        if normalized_key == "id" or normalized_key in PARSER_METADATA_KEYS:
             continue
         if isinstance(value, str) and looks_like_csv(value):
             return value
     return ""
+
+
+def sparse_single_csv_value(items: list[tuple[Any, Any]]) -> str | None:
+    non_empty = [(key, value) for key, value in items if not is_empty_value(value)]
+    if len(non_empty) != 1:
+        return None
+
+    key, value = non_empty[0]
+    if not isinstance(value, str) or not looks_like_csv(value):
+        return None
+    if normalize_key(key) not in CSV_CONTAINER_FIELD_KEYS:
+        return None
+    return value
+
+
+def is_empty_value(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and value.strip() == "")
 
 
 def normalize_key(value: Any) -> str:
