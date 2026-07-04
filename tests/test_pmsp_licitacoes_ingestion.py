@@ -4,6 +4,7 @@ import pytest
 
 from hermes.connectors.pmsp.licitacoes.normalizer import (
     detect_record_format,
+    extract_embedded_csv_row,
     normalize_record,
     normalize_records,
     parse_record,
@@ -149,7 +150,7 @@ def test_parser_handles_sparse_ckan_record_with_csv_inside_orgao() -> None:
     parsed = parse_record(raw)
     record = normalize_record(raw, ano=2005, source="ckan", source_system="PMSP Dados Abertos CKAN")
 
-    assert detect_record_format(raw) == "single_field_csv"
+    assert detect_record_format(raw) == "json_structured_embedded_csv"
     assert parsed["Orgao"] == "SANTANA/TUCURUVI"
     assert parsed["Modalidade"] == "CONVITE"
     assert record["orgao"] == "SANTANA/TUCURUVI"
@@ -214,12 +215,59 @@ def test_ingestion_reparses_legacy_normalized_record_with_real_problem_payload()
     assert ingestion_records[0]["orgao"] != raw["Orgao"]
 
 
+def test_parser_expands_real_pseudo_structured_ckan_record() -> None:
+    raw = real_pseudo_structured_ckan_record()
+
+    parsed = parse_record(raw)
+    record = normalize_record(raw, ano=2015, source="ckan", source_system="PMSP Dados Abertos CKAN")
+
+    assert detect_record_format(raw) == "json_structured_embedded_csv"
+    assert extract_embedded_csv_row(raw) == raw["Orgao"]
+    assert parsed["Orgao"] == "SANTANA/TUCURUVI"
+    assert parsed["Modalidade"] == "CONVITE"
+    assert parsed["Numero_Licitacao"] == "01/SP-ST/2015"
+    assert parsed["Numero_Processo"] == "2015-0.068.738-0"
+    assert parsed["NumeroContrato"] == "010/SP-ST/2015"
+    assert record["orgao"] == "SANTANA/TUCURUVI"
+    assert record["retranca"] == "EEHXADM"
+    assert record["modalidade"] == "CONVITE"
+    assert record["numero_licitacao"] == "01/SP-ST/2015"
+    assert record["numero_processo"] == "2015-0.068.738-0"
+    assert record["evento"] == "EXTRATO DE CONTRATO"
+    assert record["objeto"].startswith("Contrata\u00e7\u00e3o de servi\u00e7os")
+    assert record["fornecedor"] == "DELIMA ENGENHARIA E CONSTRU\u00c7\u00d5ES LTDA-EPP"
+    assert record["fornecedor_documento"] == "67020198000146"
+    assert record["numero_contrato"] == "010/SP-ST/2015"
+    assert "," not in record["orgao"]
+
+
+def test_ingestion_dry_run_reports_expanded_embedded_csv_record() -> None:
+    result = ingest_year(
+        2015,
+        session=TrackingSession(),
+        provider=FakeProvider([real_pseudo_structured_ckan_record(), good_structured_ckan_record()]),
+        dry_run=True,
+    )
+
+    first_diagnostic = result["diagnostics"][0]
+
+    assert result["fetched"] == 2
+    assert result["skipped"] == 2
+    assert first_diagnostic["decision"] == "dry_run"
+    assert first_diagnostic["tipo_detectado"] == "json_structured_embedded_csv"
+    assert first_diagnostic["embedded_csv_field"] == "Orgao"
+    assert first_diagnostic["normalized"]["orgao"] == "SANTANA/TUCURUVI"
+    assert "," not in first_diagnostic["normalized"]["orgao"]
+    assert first_diagnostic["normalized"]["modalidade"] == "CONVITE"
+    assert first_diagnostic["normalized"]["numero_processo"] == "2015-0.068.738-0"
+
+
 def test_defensive_guard_blocks_unexpanded_csv_orgao_before_upsert() -> None:
     bad_record = {
         "source": "ckan",
         "source_system": "PMSP Dados Abertos CKAN",
         "ano": 2015,
-        "orgao": real_problem_csv_line(),
+        "orgao": "A,B,C,D,E,F,G,H,I",
         "modalidade": None,
         "numero_processo": None,
     }
@@ -495,11 +543,36 @@ def real_problem_sparse_ckan_csv_record() -> dict[str, object]:
     }
 
 
+def real_pseudo_structured_ckan_record() -> dict[str, object]:
+    return {
+        "_id": 2,
+        "Orgao": real_problem_csv_line(),
+        "Retranca": None,
+        "Modalidade": None,
+        "textbox17": None,
+        "textbox19": None,
+        "N\u00famero_Licita\u00e7\u00e3o": None,
+        "objeto": None,
+        "DataPublica\u00e7\u00e3oExtrato": None,
+        "Fornecedor": None,
+        "FornecedorTipo": None,
+        "FornecedorDocumento": None,
+        "DataAssinaturaExtrato": None,
+        "ValidadeExtrato": None,
+        "TipoValidadeExtrato": None,
+        "ValorContrato": None,
+        "N\u00fameroContrato;;;;;;;;;": None,
+        "rank Orgao": 0.1,
+    }
+
+
 def real_problem_csv_line() -> str:
     return (
         "SANTANA/TUCURUVI,EEHXADM,CONVITE,01/SP-ST/2015       ,2015-0.068.738-0    ,"
-        "EXTRATO DE CONTRATO,\"Contrata\u00e7\u00e3o de servi\u00e7os de manuten\u00e7\u00e3o e adapta\u00e7\u00e3o da unidade "
-        "com fornecimento de m\u00e3o-de-obra especializada.\",10/12/2015,"
+        "EXTRATO DE CONTRATO,\"Contrata\u00e7\u00e3o de servi\u00e7os de manuten\u00e7\u00e3o e adapta\u00e7\u00e3o da ilumina\u00e7\u00e3o "
+        "da pra\u00e7a Viana do Alentejo, situada entre as ruas Geneve e Sant Gall no bairro Lauzane Paulista, "
+        "incluindo academia de gin\u00e1stica para terceira idade - AGTI e da Pra\u00e7a Paineiras do Campo, "
+        "com fornecimento de materiais de1\u00aa linha e m\u00e3o-de-obra especializada.\",10/12/2015,"
         "DELIMA ENGENHARIA E CONSTRU\u00c7\u00d5ES LTDA-EPP ,PJ,67020198000146,24/11/2015,"
         "60,Dias,\"61.883,28\",010/SP-ST/2015;;;;;;;;;"
     )
@@ -512,3 +585,13 @@ def good_normalized_record() -> dict[str, object]:
         source="ckan",
         source_system="PMSP Dados Abertos CKAN",
     )
+
+
+def good_structured_ckan_record() -> dict[str, object]:
+    return {
+        "_id": 3,
+        "Nome do \u00d3rg\u00e3o": "Secretaria B",
+        "Modalidade": "Pregao",
+        "Processo Administrativo": "2",
+        "Objeto": "Objeto bom",
+    }

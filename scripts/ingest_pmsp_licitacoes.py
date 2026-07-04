@@ -149,6 +149,7 @@ def emit_result(report: IngestReport, result: dict[str, Any]) -> None:
             f"resource_id={diagnostic.get('resource_id')} "
             f"resource_name={diagnostic.get('resource_name')} "
             f"tipo={diagnostic.get('tipo_detectado')} "
+            f"embedded_csv_field={diagnostic.get('embedded_csv_field')} "
             f"raw_keys={diagnostic.get('raw_keys')} "
             f"parsed_keys={diagnostic.get('parsed_keys')} "
             f"orgao={diagnostic.get('normalized', {}).get('orgao')} "

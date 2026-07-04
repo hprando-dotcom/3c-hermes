@@ -76,12 +76,27 @@ PARSER_METADATA_KEYS = {
     "extracsvcolumns",
     "fulltext",
     "id",
+    "rankorgao",
     "rawcsv",
     "rank",
     "score",
     "thegeom",
     "timestamp",
 }
+
+PRIMARY_EMBEDDED_CSV_FIELD_KEYS = {
+    "nomedoorgao",
+    "orgao",
+}
+
+PMSP_CSV_MARKERS = (
+    "CONVITE",
+    "TOMADA DE PRE",
+    "PREGA",
+    "DISPENSA",
+    "INEXIGIBILIDADE",
+    "EXTRATO",
+)
 
 FIELD_ALIASES = {
     "orgao": ("orgao", "Orgao", "Nome do Orgao", "nome_orgao", "unidade", "secretaria"),
@@ -187,11 +202,16 @@ def detect_record_format(record: Mapping[str, Any] | str) -> str:
             return "single_field_csv"
         return "other"
 
+    embedded_csv = extract_embedded_csv_row(record)
     non_id_items = [
         (key, value)
         for key, value in record.items()
         if normalize_key(key) not in PARSER_METADATA_KEYS
     ]
+    if embedded_csv and len(non_id_items) > 1:
+        return "json_structured_embedded_csv"
+    if embedded_csv:
+        return "csv_embedded_json" if "\n" in embedded_csv else "single_field_csv"
     if len(non_id_items) == 1 and isinstance(non_id_items[0][1], str) and "\n" in non_id_items[0][1] and looks_like_csv(non_id_items[0][1]):
         return "csv_embedded_json"
     if len(non_id_items) == 1 and isinstance(non_id_items[0][1], str) and looks_like_csv(non_id_items[0][1]):
@@ -210,31 +230,44 @@ def parse_record(record: Mapping[str, Any] | str) -> dict[str, Any]:
     detected = detect_record_format(record)
     if detected == "json_structured" and isinstance(record, Mapping):
         return dict(record)
-    if detected == "single_field_csv" and isinstance(record, Mapping):
-        csv_text = first_csv_value(record)
+    if detected in {"single_field_csv", "json_structured_embedded_csv"} and isinstance(record, Mapping):
+        csv_text = extract_embedded_csv_row(record) or first_csv_value(record)
         parsed = parse_csv_row(csv_text)
         parsed["_raw_csv"] = csv_text
+        field = extract_embedded_csv_field(record)
+        if field:
+            parsed["_embedded_csv_field"] = field
         return parsed
     if detected == "single_field_csv" and isinstance(record, str):
         parsed = parse_csv_row(record)
         parsed["_raw_csv"] = record
         return parsed
     if detected in {"csv", "csv_embedded_json"}:
-        csv_text = record if isinstance(record, str) else first_csv_value(record)
+        csv_text = record if isinstance(record, str) else extract_embedded_csv_row(record) or first_csv_value(record)
         rows = parse_csv_text(csv_text)
         parsed = rows[0] if rows else {}
         parsed["_raw_csv"] = csv_text
+        if isinstance(record, Mapping):
+            field = extract_embedded_csv_field(record)
+            if field:
+                parsed["_embedded_csv_field"] = field
         return parsed
     return dict(record) if isinstance(record, Mapping) else {"value": record}
 
 
 def expand_record(record: Mapping[str, Any] | str) -> list[dict[str, Any] | str]:
     detected = detect_record_format(record)
-    if detected in {"csv", "csv_embedded_json"}:
-        csv_text = record if isinstance(record, str) else first_csv_value(record)
+    if detected in {"csv", "csv_embedded_json", "json_structured_embedded_csv"}:
+        csv_text = record if isinstance(record, str) else extract_embedded_csv_row(record) or first_csv_value(record)
+        if detected == "json_structured_embedded_csv" and "\n" not in csv_text:
+            return [record]
         rows = parse_csv_text(csv_text)
         for row in rows:
             row["_raw_csv"] = csv_text
+            if isinstance(record, Mapping):
+                field = extract_embedded_csv_field(record)
+                if field:
+                    row["_embedded_csv_field"] = field
         return rows or [parse_record(record)]
     return [record]
 
@@ -310,7 +343,7 @@ def looks_like_csv(value: str) -> bool:
         return False
     if has_header_row(rows[0]):
         return True
-    return len(rows[0]) >= 4 or (len(rows) > 1 and len(rows[1]) >= 4)
+    return looks_like_pmsp_embedded_csv(value) or len(rows[0]) >= 4 or (len(rows) > 1 and len(rows[1]) >= 4)
 
 
 def read_csv_rows(value: str) -> list[list[str]]:
@@ -323,6 +356,9 @@ def read_csv_rows(value: str) -> list[list[str]]:
 
 
 def first_csv_value(record: Mapping[str, Any]) -> str:
+    embedded = extract_embedded_csv_row(record)
+    if embedded:
+        return embedded
     for key, value in record.items():
         normalized_key = normalize_key(key)
         if normalized_key in PARSER_METADATA_KEYS:
@@ -330,6 +366,44 @@ def first_csv_value(record: Mapping[str, Any]) -> str:
         if isinstance(value, str) and looks_like_csv(value):
             return value
     return ""
+
+
+def extract_embedded_csv_row(record: Mapping[str, Any]) -> str | None:
+    field = extract_embedded_csv_field(record)
+    if field is None:
+        return None
+    value = record.get(field)
+    return value if isinstance(value, str) else None
+
+
+def extract_embedded_csv_field(record: Mapping[str, Any]) -> str | None:
+    for key, value in record.items():
+        normalized_key = normalize_key(key)
+        if normalized_key in PARSER_METADATA_KEYS:
+            continue
+        if normalized_key not in PRIMARY_EMBEDDED_CSV_FIELD_KEYS:
+            continue
+        if isinstance(value, str) and looks_like_pmsp_embedded_csv(value):
+            return str(key)
+    return None
+
+
+def looks_like_pmsp_embedded_csv(value: str) -> bool:
+    if not value or "," not in value:
+        return False
+    comma_count = value.count(",")
+    upper_value = value.upper()
+    has_marker = any(marker in upper_value for marker in PMSP_CSV_MARKERS)
+    has_process = bool(re.search(r"\b20\d{2}-\d\.\d{3}\.\d{3}-\d\b", value))
+    has_trailing_semicolons = value.rstrip().endswith(";;;;;;;;;")
+    if not (comma_count >= 5 or has_trailing_semicolons):
+        return False
+    try:
+        rows = read_csv_rows(value)
+    except csv.Error:
+        return False
+    first_row = rows[0] if rows else []
+    return len(first_row) >= 5 and (has_marker or has_process or has_trailing_semicolons)
 
 
 def sparse_single_csv_value(items: list[tuple[Any, Any]]) -> str | None:
