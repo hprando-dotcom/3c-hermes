@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from hermes.connectors.pmsp.licitacoes.normalizer import normalize_record
+from hermes.connectors.pmsp.licitacoes.normalizer import (
+    detect_record_format,
+    normalize_record,
+    normalize_records,
+    parse_record,
+)
 from hermes.connectors.pmsp.licitacoes.apilib import classify_effective_source
 from hermes.database.models import PmspLicitacao
 from hermes.services.pmsp_licitacoes_ingestion import build_source_hash, record_to_model_values, upsert_record
@@ -29,6 +34,103 @@ def test_normalizer_maps_pmsp_licitacoes_fields() -> None:
     assert record["numero_licitacao"] == "123/2015"
     assert record["numero_contrato"] == "45/2015"
     assert record["raw"] == raw
+
+
+def test_normalizer_maps_current_ckan_json_fields() -> None:
+    raw = {
+        "_id": 1,
+        "Nome do Órgão": "COMPANHIA DE ENGENHARIA DE TRAFEGO",
+        "Contrato": "68/24",
+        "Data da Assinatura": "2024-12-27T00:00:00",
+        "Objeto": "Prestacao de servicos",
+        "Modalidade": "PREGAO ELETRONICO",
+        "Processo Administrativo": "7410.2023/0001816-6",
+        "CNPJ/CPF": "12.886.951/0001-99",
+        "Fornecedor e Nome de Fantasia": "INTEGRADE SOLUCOES LTDA",
+        "Valor(R$)": "127.000,00",
+        "Licitação": "057/2020",
+        "Data da Publicação": "2024-12-31T00:00:00",
+        "Evento": "EXTRATO DE CONTRATO",
+    }
+
+    record = normalize_record(raw, ano=2024, source="ckan", source_system="PMSP Dados Abertos CKAN")
+
+    assert detect_record_format(raw) == "json_structured"
+    assert record["orgao"] == "COMPANHIA DE ENGENHARIA DE TRAFEGO"
+    assert record["numero_contrato"] == "68/24"
+    assert record["numero_processo"] == "7410.2023/0001816-6"
+    assert record["fornecedor_documento"] == "12.886.951/0001-99"
+    assert record["numero_licitacao"] == "057/2020"
+
+
+def test_parser_handles_csv_embedded_in_json_field() -> None:
+    raw = {
+        "_id": 1,
+        "arquivo": (
+            "Orgao,Retranca,Modalidade,Numero_Licitacao,Numero_Processo,Objeto,Fornecedor,"
+            "Fornecedor_Documento,ValorContrato,NumeroContrato,DataAssinaturaExtrato,"
+            "DataPublicacaoExtrato,Evento\n"
+            "SANTANA/TUCURUVI,EEHXADM,CONVITE,123/2005,PROC-1,Objeto teste,Fornecedor SA,"
+            "00.000.000/0001-00,1000,CT-1,01/02/2005,03/02/2005,EXTRATO"
+        ),
+    }
+
+    parsed = parse_record(raw)
+    record = normalize_record(raw, ano=2005, source="ckan", source_system="PMSP Dados Abertos CKAN")
+
+    assert detect_record_format(raw) == "csv_embedded_json"
+    assert parsed["Orgao"] == "SANTANA/TUCURUVI"
+    assert record["orgao"] == "SANTANA/TUCURUVI"
+    assert record["retranca"] == "EEHXADM"
+    assert record["modalidade"] == "CONVITE"
+    assert record["numero_processo"] == "PROC-1"
+    assert record["numero_contrato"] == "CT-1"
+
+
+def test_normalize_records_expands_csv_embedded_in_json_field() -> None:
+    raw = {
+        "_id": 1,
+        "arquivo": (
+            "Orgao,Retranca,Modalidade,Numero_Licitacao,Numero_Processo,Objeto,Fornecedor,"
+            "Fornecedor_Documento,ValorContrato,NumeroContrato,DataAssinaturaExtrato,"
+            "DataPublicacaoExtrato,Evento\n"
+            "SANTANA/TUCURUVI,EEHXADM,CONVITE,123/2005,PROC-1,Objeto um,Fornecedor A,"
+            "00.000.000/0001-00,1000,CT-1,01/02/2005,03/02/2005,EXTRATO\n"
+            "SE,EEHXADM,TOMADA,456/2005,PROC-2,Objeto dois,Fornecedor B,"
+            "11.111.111/0001-11,2000,CT-2,04/02/2005,05/02/2005,EXTRATO"
+        ),
+    }
+
+    records = normalize_records([raw], ano=2005, source="ckan", source_system="PMSP Dados Abertos CKAN")
+
+    assert len(records) == 2
+    assert records[0]["orgao"] == "SANTANA/TUCURUVI"
+    assert records[1]["orgao"] == "SE"
+    assert records[1]["numero_licitacao"] == "456/2005"
+    assert records[1]["numero_contrato"] == "CT-2"
+
+
+def test_parser_handles_single_field_csv_without_header() -> None:
+    raw = {
+        "_id": 1,
+        "Orgao": (
+            "SANTANA/TUCURUVI,EEHXADM,CONVITE,123/2005,PROC-1,Objeto teste,Fornecedor SA,"
+            "00.000.000/0001-00,1000,CT-1,01/02/2005,03/02/2005,EXTRATO"
+        ),
+    }
+
+    record = normalize_record(raw, ano=2005, source="ckan", source_system="PMSP Dados Abertos CKAN")
+
+    assert detect_record_format(raw) == "single_field_csv"
+    assert record["orgao"] == "SANTANA/TUCURUVI"
+    assert record["retranca"] == "EEHXADM"
+    assert record["modalidade"] == "CONVITE"
+    assert record["numero_licitacao"] == "123/2005"
+    assert record["numero_processo"] == "PROC-1"
+    assert record["fornecedor"] == "Fornecedor SA"
+    assert record["fornecedor_documento"] == "00.000.000/0001-00"
+    assert record["valor_contrato"] == "1000"
+    assert record["data_publicacao"] == "03/02/2005"
 
 
 def test_build_source_hash_is_stable_for_same_identity() -> None:

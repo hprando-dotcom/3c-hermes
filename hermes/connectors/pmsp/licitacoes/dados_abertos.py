@@ -334,7 +334,7 @@ def inspect_resource_fields(candidate: CkanResourceCandidate, client: DadosAbert
     if candidate.field_hits:
         candidate.score += 20 + len(candidate.field_hits)
     records = extract_records(payload)
-    if any(record_has_expected_fields(record) for record in records):
+    if any(isinstance(record, Mapping) and record_has_expected_fields(record) for record in records):
         candidate.score += 20
 
 
@@ -387,14 +387,18 @@ def iter_package_resources(payload: Any) -> list[Mapping[str, Any]]:
     return [item for item in resources if isinstance(item, Mapping)]
 
 
-def extract_records(payload: Any) -> list[Mapping[str, Any]]:
+def extract_records(payload: Any) -> list[Mapping[str, Any] | str]:
+    if isinstance(payload, str):
+        return [payload]
     if not isinstance(payload, dict):
         return []
     result = payload.get("result")
     if isinstance(result, dict):
         records = result.get("records")
+        if isinstance(records, str):
+            return [records]
         if isinstance(records, list):
-            return [item for item in records if isinstance(item, Mapping)]
+            return [item for item in records if isinstance(item, (Mapping, str))]
     return []
 
 
@@ -414,7 +418,7 @@ def extract_fields(payload: Any) -> list[str]:
     return names
 
 
-def extract_total(payload: Any, records: list[Mapping[str, Any]]) -> int | None:
+def extract_total(payload: Any, records: list[Mapping[str, Any] | str]) -> int | None:
     if isinstance(payload, dict):
         result = payload.get("result")
         if isinstance(result, dict):

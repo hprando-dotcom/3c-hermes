@@ -165,27 +165,33 @@ def parse_json_or_none(response: httpx.Response, body: str) -> Any | None:
         return None
 
 
-def extract_records(payload: Any) -> list[Mapping[str, Any]]:
+def extract_records(payload: Any) -> list[Mapping[str, Any] | str]:
+    if isinstance(payload, str):
+        return [payload]
     if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, Mapping)]
+        return [item for item in payload if isinstance(item, (Mapping, str))]
     if not isinstance(payload, dict):
         return []
 
     result = payload.get("result")
     if isinstance(result, dict):
         records = result.get("records")
+        if isinstance(records, str):
+            return [records]
         if isinstance(records, list):
-            return [item for item in records if isinstance(item, Mapping)]
+            return [item for item in records if isinstance(item, (Mapping, str))]
 
     for key in ("records", "data", "items", "results", "resultados", "licitacoes", "content"):
         value = payload.get(key)
+        if isinstance(value, str):
+            return [value]
         if isinstance(value, list):
-            return [item for item in value if isinstance(item, Mapping)]
+            return [item for item in value if isinstance(item, (Mapping, str))]
 
     return []
 
 
-def extract_total(payload: Any, records: list[Mapping[str, Any]]) -> int | None:
+def extract_total(payload: Any, records: list[Mapping[str, Any] | str]) -> int | None:
     if isinstance(payload, dict):
         result = payload.get("result")
         if isinstance(result, dict):
