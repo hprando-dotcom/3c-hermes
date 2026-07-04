@@ -145,6 +145,17 @@ docker compose run --rm -v /opt/hermes/logs:/app/logs api python scripts/diagnos
 
 O script usa `SP_DOE_CONSUMER_KEY` e `SP_DOE_CONSUMER_SECRET` do `.env`, mascara credenciais sensiveis e salva o relatorio em `logs/doc_sp_diagnosis_YYYYMMDD_HHMMSS.log`.
 
+Status atual da Sprint 1B:
+
+- Autenticacao OAuth2 APILIB confirmada.
+- Swagger/OpenAPI publico coletado na APILIB Store para `Diario_Oficial - v1`.
+- Endpoints documentados: `GET /Publicacao` e `GET /Licitacao`.
+- Gateway documentado retornou `404` nas chamadas autenticadas do diagnostico da VPS.
+- Hipotese atual: API publicada/desalinhada no gateway ou `basePath` real diferente.
+- Fallback publico inicial preparado em `hermes/connectors/doc_sp/public_search.py`.
+
+Mais detalhes em `docs/api/DOC_SP_STATUS.md` e `docs/api/DOC_SP_DIAGNOSTICO.md`.
+
 ## Principios
 
 - Nunca perder informacao: payload bruto, texto original, texto limpo, metadados e versoes sao preservados.

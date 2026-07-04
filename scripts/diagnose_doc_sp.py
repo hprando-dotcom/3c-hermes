@@ -11,7 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from hermes.connectors.doc_sp.auth import ApilibAuthError, ApilibAuthenticator, ApilibCredentials, mask_secret
-from hermes.connectors.doc_sp.client import DocSpClient
+from hermes.connectors.doc_sp.client import DEFAULT_BASE_URLS, DEFAULT_CADERNOS, DEFAULT_ENDPOINT_PATHS, DocSpClient
 
 
 def main() -> int:
@@ -42,15 +42,38 @@ def main() -> int:
         report.emit(f"Expires in: {token.expires_in}")
         report.emit("")
 
-        report.emit("Testes de endpoints:")
         client = DocSpClient(token)
+
+        report.emit("Descoberta OpenAPI/Swagger via APILIB Store:")
+        discovery_probes = client.discover_openapi()
+        for probe in discovery_probes:
+            report.emit(format_discovery_probe(probe))
+        report.emit("")
+
+        report.emit("Testes avancados de endpoints no gateway:")
         probes = client.probe()
         for probe in probes:
             report.emit(format_probe(probe))
 
         ok_count = sum(1 for probe in probes if probe.ok)
+        status_counts = count_statuses(probes)
+        not_found_count = status_counts.get("404", 0)
+        openapi_collected = any(probe.has_openapi for probe in discovery_probes)
+
         report.emit("")
-        report.emit(f"Resumo: {ok_count}/{len(probes)} chamadas retornaram status 2xx.")
+        report.emit("Resumo final:")
+        report.emit(f"- OpenAPI/Swagger coletado via APILIB Store: {'sim' if openapi_collected else 'nao'}")
+        report.emit(f"- Endpoints documentados testados: {', '.join(DEFAULT_ENDPOINT_PATHS)}")
+        report.emit(f"- Base URLs testadas: {len(DEFAULT_BASE_URLS)}")
+        report.emit(f"- Variacoes de caderno testadas: {format_caderno_types(DEFAULT_CADERNOS)}")
+        report.emit(f"- Chamadas 2xx: {ok_count}/{len(probes)}")
+        report.emit(f"- Chamadas 404: {not_found_count}/{len(probes)}")
+        report.emit(f"- Distribuicao de status: {format_status_counts(status_counts)}")
+        best_probe = next((probe for probe in probes if probe.ok), None)
+        if best_probe:
+            report.emit(f"- Candidato funcional: {best_probe.request.url} params={best_probe.request.params}")
+        else:
+            report.emit("- Candidato funcional: nenhum 2xx encontrado neste diagnostico.")
         return 0
     except ApilibAuthError as exc:
         report.emit(f"Falha de autenticacao: {exc}")
@@ -93,16 +116,52 @@ def format_auth_attempt(attempt) -> str:
     )
 
 
+def format_discovery_probe(probe) -> str:
+    status = probe.status_code if probe.status_code is not None else "ERROR"
+    content_type = probe.content_type or "-"
+    preview = probe.preview or probe.error or ""
+    summary = ""
+    if probe.servers or probe.paths:
+        summary = f"\n  servers={probe.servers}\n  paths={probe.paths}"
+    return (
+        f"- GET {probe.url} | status={status} | content-type={content_type} | elapsed_ms={probe.elapsed_ms}"
+        f"{summary}\n"
+        f"  preview={preview[:500]}"
+    )
+
+
 def format_probe(probe) -> str:
     params = probe.request.params or {}
     status = probe.status_code if probe.status_code is not None else "ERROR"
     content_type = probe.content_type or "-"
     preview = probe.preview or probe.error or ""
     return (
-        f"- GET {probe.request.url} | params={params} | status={status} | "
+        f"- GET {probe.request.url} | params={params} | headers={probe.request.headers} | "
+        f"profile={probe.request.header_profile} | status={status} | "
         f"content-type={content_type} | elapsed_ms={probe.elapsed_ms}\n"
         f"  preview={preview[:500]}"
     )
+
+
+def count_statuses(probes) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for probe in probes:
+        key = str(probe.status_code) if probe.status_code is not None else "ERROR"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def format_status_counts(status_counts: dict[str, int]) -> str:
+    return ", ".join(f"{status}={count}" for status, count in sorted(status_counts.items()))
+
+
+def format_caderno_types(cadernos) -> str:
+    types = []
+    for caderno in cadernos:
+        label = f"{caderno!r} ({type(caderno).__name__})"
+        if label not in types:
+            types.append(label)
+    return ", ".join(types)
 
 
 if __name__ == "__main__":

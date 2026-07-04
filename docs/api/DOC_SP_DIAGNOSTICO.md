@@ -4,7 +4,7 @@ Este documento descreve o diagnostico automatizado do conector DOC SP/APILIB.
 
 ## Objetivo
 
-O script `scripts/diagnose_doc_sp.py` substitui testes manuais contra o gateway. Ele gera token OAuth2 por `client_credentials`, testa combinacoes conhecidas de base URL e paths, imprime respostas resumidas e salva um relatorio em `logs/`.
+O script `scripts/diagnose_doc_sp.py` substitui testes manuais contra o gateway. Ele gera token OAuth2 por `client_credentials`, tenta coletar Swagger/OpenAPI pela APILIB Store publica, testa descoberta avancada de base paths, headers e querystring, imprime respostas resumidas e salva um relatorio em `logs/`.
 
 ## Variaveis de ambiente
 
@@ -51,15 +51,26 @@ Esse volume extra garante que o relatorio gerado dentro do container fique persi
 
 ## O que e testado
 
-Bases:
+Descoberta publica de Swagger/OpenAPI:
 
 ```text
-https://gateway.apilib.prefeitura.sp.gov.br/sg/dom/v1
-http://gateway.apilib.prefeitura.sp.gov.br/sg/dom/v1
-https://gateway.apilib.prefeitura.sp.gov.br/sg/dom/v1/
-https://servicos.imprensaoficial.com.br/pubnetRestFul
-https://servicos.imprensaoficial.com.br/pubnetRestFul/api
-https://servicos.imprensaoficial.com.br/pubnetRestFul/api/v1
+https://apilib.prefeitura.sp.gov.br/store/api-docs/admin/Diario_Oficial/v1
+https://apilib.prefeitura.sp.gov.br/store/apis/info?name=Diario_Oficial&provider=admin&version=v1
+https://apilib.prefeitura.sp.gov.br/store/api-docs?name=Diario_Oficial&provider=admin&version=v1
+https://apilib.prefeitura.sp.gov.br/store/api-docs/admin/Diario_Oficial/v1/swagger.json
+```
+
+Base paths no gateway:
+
+```text
+/Diario_Oficial/v1
+/diario_oficial/v1
+/diario-oficial/v1
+/dom/v1
+/sgdom/v1
+/sg/dom/v1
+/SG/DOM/v1
+/SG_DOM/v1
 ```
 
 Paths:
@@ -68,10 +79,6 @@ Paths:
 /swagger.json
 /Publicacao
 /Licitacao
-/publicacao
-/licitacao
-/api/Publicacao
-/api/Licitacao
 ```
 
 Datas:
@@ -84,7 +91,17 @@ Datas:
 Cadernos:
 
 ```text
-11
+11 como inteiro
+11 como string
+```
+
+Perfis de headers:
+
+```text
+Accept: application/json
+Content-Type: application/json
+apikey: <access_token>
+Authorization: Bearer <token>
 ```
 
 ## Saida
@@ -93,6 +110,7 @@ Para cada chamada, o diagnostico mostra:
 
 - metodo e URL;
 - parametros enviados;
+- perfil de headers usado, com credenciais mascaradas;
 - `status_code`;
 - `content-type`;
 - tempo de resposta;
@@ -111,3 +129,5 @@ Status `404` em todas as combinacoes autenticadas sugere problema de rota, publi
 Status `401` ou `403` sugere problema de credencial, assinatura da aplicacao na API ou escopo do token.
 
 Status `2xx` com corpo valido indica combinacao candidata para o futuro collector real.
+
+O resumo final informa se o Swagger foi coletado, os endpoints documentados testados, a quantidade de chamadas `2xx`, a quantidade de `404` e a distribuicao de status.
