@@ -41,6 +41,25 @@ FALLBACK_CSV_COLUMNS = (
     "Evento",
 )
 
+E_NEGOCIOS_CSV_COLUMNS = (
+    "Orgao",
+    "Retranca",
+    "Modalidade",
+    "Numero_Licitacao",
+    "Numero_Processo",
+    "Evento",
+    "Objeto",
+    "DataPublicacaoExtrato",
+    "Fornecedor",
+    "Fornecedor_Tipo",
+    "Fornecedor_Documento",
+    "DataAssinaturaExtrato",
+    "Prazo",
+    "Prazo_Unidade",
+    "ValorContrato",
+    "NumeroContrato",
+)
+
 CSV_CONTAINER_FIELD_KEYS = {
     "arquivo",
     "content",
@@ -55,7 +74,13 @@ CSV_CONTAINER_FIELD_KEYS = {
 
 PARSER_METADATA_KEYS = {
     "extracsvcolumns",
+    "fulltext",
+    "id",
     "rawcsv",
+    "rank",
+    "score",
+    "thegeom",
+    "timestamp",
 }
 
 FIELD_ALIASES = {
@@ -165,7 +190,7 @@ def detect_record_format(record: Mapping[str, Any] | str) -> str:
     non_id_items = [
         (key, value)
         for key, value in record.items()
-        if normalize_key(key) != "id" and normalize_key(key) not in PARSER_METADATA_KEYS
+        if normalize_key(key) not in PARSER_METADATA_KEYS
     ]
     if len(non_id_items) == 1 and isinstance(non_id_items[0][1], str) and "\n" in non_id_items[0][1] and looks_like_csv(non_id_items[0][1]):
         return "csv_embedded_json"
@@ -234,7 +259,7 @@ def parse_csv_text(value: str) -> list[dict[str, Any]]:
         headers = [cell.strip() for cell in rows[0]]
         data_rows = rows[1:]
     else:
-        headers = list(FALLBACK_CSV_COLUMNS[: len(rows[0])])
+        headers = select_fallback_headers(rows[0])
         data_rows = rows
 
     return [row_to_dict(headers, row) for row in data_rows]
@@ -246,10 +271,26 @@ def parse_csv_row(value: str) -> dict[str, Any]:
 
 
 def row_to_dict(headers: list[str], row: list[str]) -> dict[str, Any]:
-    parsed = {headers[index]: cell.strip() for index, cell in enumerate(row) if index < len(headers)}
+    parsed = {headers[index]: clean_csv_cell(cell) for index, cell in enumerate(row) if index < len(headers)}
     if len(row) > len(headers):
-        parsed["_extra_csv_columns"] = [cell.strip() for cell in row[len(headers):]]
+        parsed["_extra_csv_columns"] = [clean_csv_cell(cell) for cell in row[len(headers):]]
     return parsed
+
+
+def select_fallback_headers(row: list[str]) -> list[str]:
+    if looks_like_e_negocios_row(row):
+        return list(E_NEGOCIOS_CSV_COLUMNS[: len(row)])
+    return list(FALLBACK_CSV_COLUMNS[: len(row)])
+
+
+def looks_like_e_negocios_row(row: list[str]) -> bool:
+    if len(row) < len(E_NEGOCIOS_CSV_COLUMNS):
+        return False
+    return normalize_key(row[9]) in {"pf", "pj"} or normalize_key(row[5]).startswith("extrato")
+
+
+def clean_csv_cell(value: Any) -> str:
+    return str(value).strip().strip(";").strip()
 
 
 def has_header_row(row: list[str]) -> bool:
@@ -284,7 +325,7 @@ def read_csv_rows(value: str) -> list[list[str]]:
 def first_csv_value(record: Mapping[str, Any]) -> str:
     for key, value in record.items():
         normalized_key = normalize_key(key)
-        if normalized_key == "id" or normalized_key in PARSER_METADATA_KEYS:
+        if normalized_key in PARSER_METADATA_KEYS:
             continue
         if isinstance(value, str) and looks_like_csv(value):
             return value

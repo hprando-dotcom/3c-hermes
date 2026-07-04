@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from hermes.connectors.pmsp.licitacoes.normalizer import (
     detect_record_format,
     normalize_record,
@@ -8,7 +10,15 @@ from hermes.connectors.pmsp.licitacoes.normalizer import (
 )
 from hermes.connectors.pmsp.licitacoes.apilib import classify_effective_source
 from hermes.database.models import PmspLicitacao
-from hermes.services.pmsp_licitacoes_ingestion import build_source_hash, record_to_model_values, upsert_record
+from hermes.services.pmsp_licitacoes_ingestion import (
+    build_source_hash,
+    has_unexpanded_csv_orgao,
+    ingest_year,
+    normalize_provider_record,
+    PmspLicitacoesValidationError,
+    record_to_model_values,
+    upsert_record,
+)
 
 
 def test_normalizer_maps_pmsp_licitacoes_fields() -> None:
@@ -169,6 +179,87 @@ def test_debug_and_ingestion_pipeline_normalize_same_sparse_csv_record() -> None
     assert str(persisted["data_publicacao"]) == "2005-02-03"
 
 
+def test_ingestion_reparses_legacy_normalized_record_with_real_problem_payload() -> None:
+    raw = real_problem_sparse_ckan_csv_record()
+    legacy_provider_record = {
+        "source": "ckan",
+        "source_system": "PMSP Dados Abertos CKAN",
+        "ano": 2015,
+        "orgao": raw["Orgao"],
+        "modalidade": None,
+        "numero_licitacao": None,
+        "numero_processo": None,
+        "raw": raw,
+    }
+
+    debug_record = normalize_record(raw, ano=2015, source="ckan", source_system="PMSP Dados Abertos CKAN")
+    ingestion_records = normalize_provider_record(
+        legacy_provider_record,
+        ano=2015,
+        source="ckan",
+        source_system="PMSP Dados Abertos CKAN",
+    )
+
+    assert ingestion_records == [debug_record]
+    assert ingestion_records[0]["orgao"] == "SANTANA/TUCURUVI"
+    assert ingestion_records[0]["retranca"] == "EEHXADM"
+    assert ingestion_records[0]["modalidade"] == "CONVITE"
+    assert ingestion_records[0]["numero_licitacao"] == "01/SP-ST/2015"
+    assert ingestion_records[0]["numero_processo"] == "2015-0.068.738-0"
+    assert ingestion_records[0]["evento"] == "EXTRATO DE CONTRATO"
+    assert ingestion_records[0]["objeto"].startswith("Contrata\u00e7\u00e3o de servi\u00e7os")
+    assert ingestion_records[0]["fornecedor"] == "DELIMA ENGENHARIA E CONSTRU\u00c7\u00d5ES LTDA-EPP"
+    assert ingestion_records[0]["fornecedor_documento"] == "67020198000146"
+    assert ingestion_records[0]["numero_contrato"] == "010/SP-ST/2015"
+    assert ingestion_records[0]["orgao"] != raw["Orgao"]
+
+
+def test_defensive_guard_blocks_unexpanded_csv_orgao_before_upsert() -> None:
+    bad_record = {
+        "source": "ckan",
+        "source_system": "PMSP Dados Abertos CKAN",
+        "ano": 2015,
+        "orgao": real_problem_csv_line(),
+        "modalidade": None,
+        "numero_processo": None,
+    }
+
+    assert has_unexpanded_csv_orgao(bad_record)
+
+    session = TrackingSession()
+    result = ingest_year(2015, session=session, provider=FakeProvider([bad_record, good_normalized_record()]))
+
+    assert result["fetched"] == 2
+    assert result["skipped"] == 1
+    assert result["inserted"] == 1
+    assert session.rollback_count == 1
+    assert session.commit_count == 1
+    assert len(session.added) == 1
+    assert session.added[0].orgao == "Secretaria B"
+    assert any("single_field_csv_not_expanded_before_upsert" in error for error in result["errors"])
+    assert result["diagnostics"][0]["decision"] == "bloquear"
+    assert result["diagnostics"][0]["resource_id"] == "resource-test"
+    assert result["diagnostics"][1]["decision"] == "persistir"
+
+
+def test_upsert_record_rejects_raw_csv_orgao_before_database_access() -> None:
+    bad_record = {
+        "source": "ckan",
+        "source_system": "PMSP Dados Abertos CKAN",
+        "ano": 2015,
+        "orgao": real_problem_csv_line(),
+        "modalidade": None,
+        "numero_processo": None,
+        "objeto": None,
+    }
+    session = NoDatabaseAccessSession()
+
+    with pytest.raises(PmspLicitacoesValidationError, match="single_field_csv_not_expanded_before_upsert"):
+        upsert_record(session, bad_record)
+
+    assert not session.executed
+
+
 def test_build_source_hash_is_stable_for_same_identity() -> None:
     record_a = {
         "source": "ckan",
@@ -232,6 +323,32 @@ def test_upsert_record_skips_existing_identical_record() -> None:
     assert session.added == []
 
 
+def test_ingest_year_rolls_back_bad_record_and_continues() -> None:
+    records = [
+        normalize_record(
+            {"Orgao": "Secretaria A", "Modalidade": "Convite", "Numero_Processo": "1"},
+            ano=2015,
+            source="ckan",
+            source_system="PMSP Dados Abertos CKAN",
+        ),
+        normalize_record(
+            {"Orgao": "Secretaria B", "Modalidade": "Pregao", "Numero_Processo": "2"},
+            ano=2015,
+            source="ckan",
+            source_system="PMSP Dados Abertos CKAN",
+        ),
+    ]
+    session = FailingOnceSession()
+
+    result = ingest_year(2015, session=session, provider=FakeProvider(records))
+
+    assert result["fetched"] == 2
+    assert result["inserted"] == 1
+    assert result["errors"] == ["RuntimeError: flush failed once"]
+    assert session.rollback_count == 1
+    assert session.commit_count == 1
+
+
 class FakeResult:
     def __init__(self, value):
         self.value = value
@@ -256,6 +373,99 @@ class FakeSession:
         self.flushed = True
 
 
+class FakeProvider:
+    def __init__(self, records):
+        self.records = records
+
+    def list_by_year(self, _ano, limite=100, offset=0):
+        return FakeProviderResult(self.records)
+
+
+class FakeProviderResult:
+    source_used = "ckan"
+    source_system = "PMSP Dados Abertos CKAN"
+    total = 2
+    errors = []
+    ckan = {
+        "resource_id": "resource-test",
+        "selected_resource": {
+            "resource_id": "resource-test",
+            "name": "resource test",
+        },
+    }
+    apilib = None
+
+    def __init__(self, records):
+        self.records = records
+
+
+class FailingOnceSession:
+    def __init__(self):
+        self.added = []
+        self.flush_count = 0
+        self.rollback_count = 0
+        self.commit_count = 0
+        self.pending_rollback = False
+
+    def execute(self, _statement):
+        if self.pending_rollback:
+            raise AssertionError("PendingRollbackError")
+        return FakeResult(None)
+
+    def add(self, value):
+        if self.pending_rollback:
+            raise AssertionError("PendingRollbackError")
+        self.added.append(value)
+
+    def flush(self):
+        if self.pending_rollback:
+            raise AssertionError("PendingRollbackError")
+        self.flush_count += 1
+        if self.flush_count == 1:
+            self.pending_rollback = True
+            raise RuntimeError("flush failed once")
+
+    def rollback(self):
+        self.pending_rollback = False
+        self.rollback_count += 1
+
+    def commit(self):
+        if self.pending_rollback:
+            raise AssertionError("PendingRollbackError")
+        self.commit_count += 1
+
+
+class TrackingSession:
+    def __init__(self):
+        self.added = []
+        self.rollback_count = 0
+        self.commit_count = 0
+
+    def execute(self, _statement):
+        return FakeResult(None)
+
+    def add(self, value):
+        self.added.append(value)
+
+    def flush(self):
+        return None
+
+    def rollback(self):
+        self.rollback_count += 1
+
+    def commit(self):
+        self.commit_count += 1
+
+
+class NoDatabaseAccessSession:
+    def __init__(self):
+        self.executed = False
+
+    def execute(self, _statement):
+        self.executed = True
+        raise AssertionError("database should not be touched")
+
+
 def sparse_ckan_csv_record() -> dict[str, object]:
     return {
         "_id": 1,
@@ -276,3 +486,29 @@ def sparse_ckan_csv_record() -> dict[str, object]:
         "DataPublicacaoExtrato": None,
         "Evento": None,
     }
+
+
+def real_problem_sparse_ckan_csv_record() -> dict[str, object]:
+    return {
+        "_id": 2,
+        "Orgao": real_problem_csv_line(),
+    }
+
+
+def real_problem_csv_line() -> str:
+    return (
+        "SANTANA/TUCURUVI,EEHXADM,CONVITE,01/SP-ST/2015       ,2015-0.068.738-0    ,"
+        "EXTRATO DE CONTRATO,\"Contrata\u00e7\u00e3o de servi\u00e7os de manuten\u00e7\u00e3o e adapta\u00e7\u00e3o da unidade "
+        "com fornecimento de m\u00e3o-de-obra especializada.\",10/12/2015,"
+        "DELIMA ENGENHARIA E CONSTRU\u00c7\u00d5ES LTDA-EPP ,PJ,67020198000146,24/11/2015,"
+        "60,Dias,\"61.883,28\",010/SP-ST/2015;;;;;;;;;"
+    )
+
+
+def good_normalized_record() -> dict[str, object]:
+    return normalize_record(
+        {"Orgao": "Secretaria B", "Modalidade": "Pregao", "Numero_Processo": "2"},
+        ano=2015,
+        source="ckan",
+        source_system="PMSP Dados Abertos CKAN",
+    )

@@ -143,6 +143,19 @@ def emit_result(report: IngestReport, result: dict[str, Any]) -> None:
     )
     for error in result.get("errors", []):
         report.emit(f"- erro: {error}")
+    for diagnostic in result.get("diagnostics", []):
+        report.emit(
+            "- diag: "
+            f"resource_id={diagnostic.get('resource_id')} "
+            f"resource_name={diagnostic.get('resource_name')} "
+            f"tipo={diagnostic.get('tipo_detectado')} "
+            f"raw_keys={diagnostic.get('raw_keys')} "
+            f"parsed_keys={diagnostic.get('parsed_keys')} "
+            f"orgao={diagnostic.get('normalized', {}).get('orgao')} "
+            f"modalidade={diagnostic.get('normalized', {}).get('modalidade')} "
+            f"numero_processo={diagnostic.get('normalized', {}).get('numero_processo')} "
+            f"decisao={diagnostic.get('decision')}"
+        )
 
 
 if __name__ == "__main__":
