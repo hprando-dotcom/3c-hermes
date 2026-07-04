@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
-from time import perf_counter
 from typing import Any
 
-import httpx
-
-from hermes.connectors.doc_sp.auth import ApilibToken, safe_preview
-
-PMSP_LICITACOES_BASE_URL = "https://gateway.apilib.prefeitura.sp.gov.br/sg/licitacoes/v1"
-MIN_YEAR = 2005
-MAX_YEAR = 2019
+from hermes.connectors.doc_sp.auth import ApilibToken
+from hermes.connectors.pmsp.licitacoes.apilib import (
+    APILIB_LICITACOES_BASE_URL as PMSP_LICITACOES_BASE_URL,
+    MAX_YEAR,
+    MIN_YEAR,
+    ApilibLicitacoesClient,
+)
+from hermes.connectors.pmsp.licitacoes.provider import PmspLicitacoesProvider
 
 
 @dataclass(slots=True)
@@ -40,6 +39,8 @@ class PmspLicitacoesResponse:
 
 
 class PmspLicitacoesClient:
+    """Backward-compatible wrapper for the new PMSP Licitacoes provider."""
+
     def __init__(
         self,
         token: ApilibToken,
@@ -49,53 +50,33 @@ class PmspLicitacoesClient:
         self.token = token
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
+        self.provider = PmspLicitacoesProvider(
+            token=token,
+            apilib_client=ApilibLicitacoesClient(token=token, base_url=base_url, timeout_seconds=timeout_seconds),
+        )
 
     def list_by_year(self, ano: int, limite: int | None = None, offset: int | None = None) -> PmspLicitacoesResponse:
         validate_year(ano)
-        params = build_params(limite=limite, offset=offset)
-        url = build_year_url(self.base_url, ano)
-        request = PmspLicitacoesRequest(ano=ano, url=url, params=params)
-        started = perf_counter()
+        result = self.provider.list_by_year(ano, limite=limite or 100, offset=offset or 0)
+        selected = result.selected_attempt_summary() or {}
+        errors = "; ".join(error.message for error in result.errors) if not result.source_used else None
 
-        try:
-            with httpx.Client(timeout=self.timeout_seconds, follow_redirects=True) as client:
-                response = client.get(url, params=params, headers=self._headers())
-
-            elapsed_ms = round((perf_counter() - started) * 1000, 2)
-            body = response.text if response.content else ""
-            json_payload = parse_json_or_none(response, body)
-            response_request = PmspLicitacoesRequest(ano=ano, url=str(response.url), params=params)
-            return PmspLicitacoesResponse(
-                request=response_request,
-                status_code=response.status_code,
-                content_type=response.headers.get("content-type"),
-                elapsed_ms=elapsed_ms,
-                response_size=len(response.content),
-                preview=safe_preview(body),
-                looks_json=json_payload is not None or has_json_content_type(response),
-                record_count=count_records(json_payload),
-                json_payload=json_payload,
-            )
-        except httpx.HTTPError as exc:
-            elapsed_ms = round((perf_counter() - started) * 1000, 2)
-            return PmspLicitacoesResponse(
-                request=request,
-                status_code=None,
-                content_type=None,
-                elapsed_ms=elapsed_ms,
-                response_size=0,
-                preview="",
-                looks_json=False,
-                record_count=None,
-                error=f"{exc.__class__.__name__}: {exc}",
-            )
-
-    def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": self.token.authorization_header,
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+        return PmspLicitacoesResponse(
+            request=PmspLicitacoesRequest(
+                ano=ano,
+                url=str(selected.get("url") or ""),
+                params=dict(selected.get("params") or {}),
+            ),
+            status_code=selected.get("status_code"),
+            content_type=selected.get("content_type"),
+            elapsed_ms=float(selected.get("elapsed_ms") or 0),
+            response_size=int(selected.get("response_size") or 0),
+            preview=str(selected.get("preview") or ""),
+            looks_json=bool(selected.get("looks_json")),
+            record_count=result.record_count,
+            json_payload=result.to_summary(include_records=True),
+            error=errors,
+        )
 
 
 def validate_year(ano: int) -> None:
@@ -114,35 +95,3 @@ def build_params(limite: int | None = None, offset: int | None = None) -> dict[s
 
 def build_year_url(base_url: str, ano: int) -> str:
     return f"{base_url.rstrip('/')}/{ano}"
-
-
-def has_json_content_type(response: httpx.Response) -> bool:
-    return "json" in response.headers.get("content-type", "").lower()
-
-
-def parse_json_or_none(response: httpx.Response, body: str) -> Any | None:
-    if not body.strip():
-        return None
-    if not has_json_content_type(response) and not body.lstrip().startswith(("{", "[")):
-        return None
-    try:
-        return json.loads(body)
-    except ValueError:
-        return None
-
-
-def count_records(payload: Any) -> int | None:
-    if payload is None:
-        return None
-    if isinstance(payload, list):
-        return len(payload)
-    if isinstance(payload, dict):
-        for key in ("data", "items", "results", "resultados", "licitacoes", "content"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return len(value)
-        for value in payload.values():
-            if isinstance(value, list):
-                return len(value)
-        return 0 if not payload else None
-    return None

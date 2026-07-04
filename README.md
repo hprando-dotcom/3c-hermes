@@ -195,6 +195,28 @@ Arquivos gerados:
 Conector: `hermes/connectors/pmsP_licitacoes/client.py`.
 Documentacao: `docs/api/PMSP_LICITACOES_STATUS.md`.
 
+Arquitetura definitiva da Sprint 2B:
+
+- `hermes/connectors/pmsp/licitacoes/apilib.py`: cliente APILIB.
+- `hermes/connectors/pmsp/licitacoes/dados_abertos.py`: cliente CKAN Dados Abertos com descoberta dinamica.
+- `hermes/connectors/pmsp/licitacoes/provider.py`: fallback APILIB -> CKAN.
+- `hermes/connectors/pmsp/licitacoes/normalizer.py`: formato normalizado.
+- `hermes/connectors/pmsP_licitacoes/client.py`: wrapper compativel com o conector antigo.
+
+Diagnostico do provider na VPS:
+
+```bash
+cd /opt/hermes
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/diagnose_pmsp_licitacoes_provider.py
+```
+
+Arquivos gerados:
+
+- `logs/pmsp_licitacoes_provider_YYYYMMDD_HHMMSS.log`
+- `logs/pmsp_licitacoes_provider_summary_YYYYMMDD_HHMMSS.json`
+
+Documentacao: `docs/api/PMSP_LICITACOES_PROVIDER.md`.
+
 ## Principios
 
 - Nunca perder informacao: payload bruto, texto original, texto limpo, metadados e versoes sao preservados.
