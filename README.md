@@ -170,6 +170,31 @@ Esse scanner testa bases alternativas, paths comuns, `GET`, `HEAD` e `OPTIONS`, 
 
 Documentacao: `docs/api/DOC_SP_DEEP_SCAN.md`.
 
+## Diagnostico PMSP Licitacoes
+
+A API `Licitacoes - v1` da APILIB/PMSP usa:
+
+```text
+https://gateway.apilib.prefeitura.sp.gov.br/sg/licitacoes/v1/{ano}
+```
+
+O diagnostico compara `grant_type=client_credentials` e `grant_type=password`, testa os anos `2005`, `2010`, `2015` e `2019` com `limite=10&offset=0`, mascara credenciais e salva log + resumo JSON.
+
+Na VPS:
+
+```bash
+cd /opt/hermes
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/diagnose_pmsp_licitacoes.py
+```
+
+Arquivos gerados:
+
+- `logs/pmsp_licitacoes_diagnosis_YYYYMMDD_HHMMSS.log`
+- `logs/pmsp_licitacoes_diagnosis_summary_YYYYMMDD_HHMMSS.json`
+
+Conector: `hermes/connectors/pmsP_licitacoes/client.py`.
+Documentacao: `docs/api/PMSP_LICITACOES_STATUS.md`.
+
 ## Principios
 
 - Nunca perder informacao: payload bruto, texto original, texto limpo, metadados e versoes sao preservados.
