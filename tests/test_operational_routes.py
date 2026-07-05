@@ -29,8 +29,9 @@ def test_home_page_returns_html() -> None:
 
     assert response.status_code == 200
     assert "HERMES" in response.text
-    assert "Buscar" in response.text
-    assert "TCE-SP" in response.text
+    assert "Investigar" in response.text
+    assert "Agente de Inteligencia sobre Publicacoes Publicas" in response.text
+    assert "Consulta avancada TCE-SP" in response.text or "TCE-SP" in response.text
 
 
 def test_pmsp_summary_page_returns_html() -> None:
@@ -51,6 +52,31 @@ def test_pmsp_search_page_returns_html() -> None:
 
     assert response.status_code == 200
     assert "Consulta" in response.text or "consultar" in response.text
+
+
+def test_mission_pages_return_html_for_initial_intents() -> None:
+    app = create_app()
+    app.dependency_overrides[get_session] = fake_session
+    client = TestClient(app)
+
+    for path in (
+        "/missao?q=obras",
+        "/missao?q=fornecedores",
+        "/missao?q=sa%C3%BAde",
+    ):
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert "Resumo executivo" in response.text
+        assert "Resultado da missao" in response.text
+
+
+def test_reports_page_returns_html() -> None:
+    client = TestClient(create_app())
+    response = client.get("/relatorios")
+
+    assert response.status_code == 200
+    assert "Relatorios" in response.text
 
 
 def test_tcesp_home_page_returns_html() -> None:

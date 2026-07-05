@@ -1,8 +1,8 @@
 # HERMES
 
-HERMES e uma plataforma operacional de inteligencia para rastrear publicacoes oficiais relacionadas a engenharia e infraestrutura.
+HERMES e um agente de inteligencia publica para investigar publicacoes oficiais, cruzar fontes governamentais e entregar achados, alertas e relatorios acionaveis.
 
-Este repositorio contem a fundacao da Fase 1 e os primeiros modulos consultaveis no navegador. Ele nao e um CRUD tradicional e nao depende do computador local para operar. O desenho alvo e execucao continua em VPS, com PostgreSQL, coletores, parser, classificador desacoplado, scheduler, API operacional e telas simples para consulta.
+O HERMES nao deve ser tratado como um formulario de consulta manual. A experiencia principal comeca por uma missao em linguagem natural, e as consultas tecnicas PMSP/TCE-SP ficam como modo exploratorio avancado.
 
 ## Objetivos da Fase 1
 
@@ -11,7 +11,10 @@ Este repositorio contem a fundacao da Fase 1 e os primeiros modulos consultaveis
 - PostgreSQL preparado com migracao inicial.
 - Modelagem inicial para fontes, publicacoes, versoes, arquivos, empresas, classificacoes e execucoes de coleta.
 - Modulos `collector`, `parser`, `classifier`, `scheduler`, `database`, `api`, `services`, `config`, `logs`, `scripts` e `docs`.
-- Endpoints operacionais `/`, `/status`, `/health`, `/version`, `/openapi.json` e `/docs`.
+- Home orientada por missao em `/`.
+- Rota `/missao` para investigacao heuristica inicial.
+- Relatorios em `/relatorios`.
+- Endpoints operacionais `/status`, `/health`, `/version`, `/openapi.json` e `/docs`.
 - Configuracao por `.env`.
 - Logging estruturado.
 - Scheduler e collector preparados para evolucao.
@@ -20,7 +23,7 @@ Este repositorio contem a fundacao da Fase 1 e os primeiros modulos consultaveis
 ## Stack
 
 - Python 3.12
-- FastAPI para API operacional e telas HTML simples
+- FastAPI para API operacional, telas HTML e fluxo de missoes
 - SQLAlchemy 2
 - Alembic
 - PostgreSQL 16
@@ -85,13 +88,15 @@ curl http://localhost:8000/openapi.json
 ## Endpoints
 
 - `GET /`: tela inicial HERMES.
+- `GET /missao?q=...`: executa uma missao em linguagem natural e devolve resposta executiva.
+- `GET /relatorios`: atalhos iniciais de relatorios e investigacoes recorrentes.
 - `GET /status`: status operacional, conexao com banco e totais por base.
 - `GET /health`: status do servico e conectividade com banco.
 - `GET /version`: nome, versao e ambiente.
 - `GET /docs`: Swagger UI.
 - `GET /openapi.json`: contrato OpenAPI.
 
-Telas de consulta:
+Telas de consulta avancada:
 
 - `GET /pmsp`: consulta PMSP Licitacoes.
 - `GET /pmsp/resumo`: resumo PMSP Licitacoes.
@@ -293,11 +298,12 @@ Uso no navegador:
 
 ```text
 http://IP_PUBLICO_DA_VPS:8000
+http://IP_PUBLICO_DA_VPS:8000/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo
 http://IP_PUBLICO_DA_VPS:8000/tcesp
 http://IP_PUBLICO_DA_VPS:8000/status
 ```
 
-Documentacao: `docs/HERMES_TCESP.md` e `README_USO.md`.
+Documentacao: `docs/HERMES_ARQUITETURA_PRODUTO.md`, `docs/HERMES_TCESP.md` e `README_USO.md`.
 
 ## Principios
 

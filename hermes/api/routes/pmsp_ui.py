@@ -18,46 +18,62 @@ router = APIRouter(tags=["pmsp-ui"])
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 def home() -> HTMLResponse:
     return html_page(
-        "HERMES - Rastreamento de Publicações",
+        "HERMES - Agente de Inteligencia sobre Publicacoes Publicas",
         """
         <section class="hero">
-          <h1>HERMES — Rastreamento de Publicações</h1>
-          <p class="muted">Consulta operacional das bases homologadas no HERMES.</p>
+          <p class="eyebrow">Agente de Inteligencia sobre Publicacoes Publicas</p>
+          <h1>HERMES</h1>
+          <p class="lead">O HERMES investiga publicacoes publicas para voce, cruza fontes oficiais e entrega achados, alertas e relatorios acionaveis.</p>
+          <form action="/missao" method="get" class="mission-form">
+            <label>O que voce quer que o HERMES investigue?
+              <textarea name="q" rows="4" placeholder="Ex.: obras e manutencao em Sao Paulo"></textarea>
+            </label>
+            <button type="submit">Investigar</button>
+          </form>
+          <div class="example-list">
+            <a class="pill" href="/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo">Obras e manutencao em Sao Paulo</a>
+            <a class="pill" href="/missao?q=fornecedores%20recorrentes%20em%20contratos%20publicos">Fornecedores recorrentes</a>
+            <a class="pill" href="/missao?q=movimentacoes%20de%20saude">Movimentacoes de saude</a>
+            <a class="pill" href="/missao?q=despesas%20municipais%20no%20TCE-SP">Despesas municipais no TCE-SP</a>
+            <a class="pill" href="/missao?q=orgaos%20mais%20ativos">Orgaos mais ativos</a>
+          </div>
           <div class="quick-actions">
+            <a class="button secondary" href="/relatorios">Relatorios</a>
             <a class="button secondary" href="/status">Status</a>
             <a class="button secondary" href="/docs">OpenAPI Docs</a>
           </div>
         </section>
         <section class="module-grid">
-          <a class="module-card" href="/pmsp/resumo?ano=2015">
-            <strong>PMSP Licitações</strong>
-            <span>Contratos e licitações normalizados do município de São Paulo.</span>
+          <a class="module-card" href="/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo">
+            <strong>Missoes recentes</strong>
+            <span>Reabra investigacoes frequentes sobre obras, manutencao, fornecedores, saude e orgaos ativos.</span>
           </a>
-          <a class="module-card" href="/tcesp">
-            <strong>TCE-SP</strong>
-            <span>Municípios, despesas e receitas da transparência municipal paulista.</span>
+          <a class="module-card" href="/relatorios">
+            <strong>Relatorios</strong>
+            <span>Atalhos para resumos executivos e investigacoes prontas.</span>
+          </a>
+          <a class="module-card" href="/status">
+            <strong>Alertas</strong>
+            <span>Qualidade das bases, lacunas e sinais operacionais do sistema.</span>
+          </a>
+          <a class="module-card" href="/status">
+            <strong>Fontes monitoradas</strong>
+            <span>PMSP Licitacoes e TCE-SP Transparencia Municipal, com PNCP e outras fontes no roadmap.</span>
+          </a>
+          <a class="module-card" href="/status">
+            <strong>Status do sistema</strong>
+            <span>API, banco, totais carregados e alertas operacionais em uma visao unica.</span>
           </a>
         </section>
         <section class="panel">
-          <h2>Busca rápida PMSP</h2>
-          <form action="/pmsp" method="get" class="search-form">
-            <label>Ano
-              <input type="number" name="ano" value="2015" min="2005" max="2100">
-            </label>
-            <label>Órgão
-              <input type="search" name="orgao" placeholder="Ex.: SANTANA">
-            </label>
-            <label>Termo no objeto
-              <input type="search" name="termo" placeholder="Ex.: engenharia">
-            </label>
-            <label>Limite
-              <input type="number" name="limite" value="50" min="1" max="1000">
-            </label>
-            <div class="actions">
-              <button type="submit">Buscar</button>
-              <a class="button secondary" href="/pmsp/resumo?ano=2015">Resumo Geral PMSP</a>
-            </div>
-          </form>
+          <h2>Modo exploratorio avancado</h2>
+          <p class="muted">Consultas tecnicas continuam disponiveis para auditoria, validacao e exploracao manual das bases.</p>
+          <div class="actions">
+            <a class="button secondary" href="/pmsp?ano=2015&limite=50">Consulta avancada PMSP</a>
+            <a class="button secondary" href="/tcesp">Consulta avancada TCE-SP</a>
+            <a class="button secondary" href="/pmsp/resumo?ano=2015">Resumo PMSP</a>
+            <a class="button secondary" href="/tcesp/resumo?ano=2015">Resumo TCE-SP</a>
+          </div>
         </section>
         """,
     )
@@ -97,7 +113,7 @@ def search_pmsp(
     body = f"""
     <section class="panel">
       <div class="topbar">
-        <h1>Consulta PMSP Licitações</h1>
+        <h1>Consulta avancada PMSP</h1>
         <a class="button secondary" href="/">Nova busca</a>
       </div>
       <p class="muted">Critérios: {escape(criteria)}</p>
@@ -291,9 +307,49 @@ def html_page(title: str, body: str) -> HTMLResponse:
     h2 {{ margin: 0 0 12px; font-size: 18px; }}
     .hero {{
       margin-bottom: 18px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 1px 2px rgba(20, 28, 38, 0.06);
     }}
     .hero h1 {{
+      font-size: 44px;
       margin-bottom: 8px;
+    }}
+    .eyebrow {{
+      margin: 0 0 8px;
+      color: var(--primary);
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 13px;
+    }}
+    .lead {{
+      max-width: 780px;
+      color: var(--muted);
+      font-size: 18px;
+      margin: 0 0 18px;
+    }}
+    .mission-form {{
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+      margin: 18px 0 12px;
+    }}
+    .mission-form label {{
+      color: var(--text);
+      font-size: 16px;
+    }}
+    .mission-form button {{
+      min-width: 140px;
+      min-height: 48px;
+    }}
+    .mission-quote {{
+      padding: 14px;
+      border-left: 4px solid var(--primary);
+      background: #f0f5ff;
+      font-size: 18px;
     }}
     .quick-actions {{
       display: flex;
@@ -346,7 +402,7 @@ def html_page(title: str, body: str) -> HTMLResponse:
       margin-bottom: 18px;
     }}
     label {{ display: grid; gap: 6px; font-weight: 700; color: var(--muted); }}
-    input, select {{
+    input, select, textarea {{
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -355,6 +411,7 @@ def html_page(title: str, body: str) -> HTMLResponse:
       color: var(--text);
       background: #fff;
     }}
+    textarea {{ resize: vertical; min-height: 110px; }}
     button, .button {{
       display: inline-flex;
       align-items: center;
@@ -374,6 +431,20 @@ def html_page(title: str, body: str) -> HTMLResponse:
     .secondary {{ color: var(--text); background: #eef2f7; }}
     .secondary:hover {{ background: #e3e9f2; }}
     .actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+    .example-list {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--text);
+      background: #fff;
+      text-decoration: none;
+      font-size: 14px;
+    }}
+    .pill:hover {{ border-color: var(--primary); }}
     .topbar {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
     .muted {{ color: var(--muted); }}
     .error {{ color: var(--danger); font-weight: 700; }}
@@ -393,7 +464,8 @@ def html_page(title: str, body: str) -> HTMLResponse:
     li {{ margin: 8px 0; }}
     li strong {{ float: right; margin-left: 12px; }}
     @media (max-width: 820px) {{
-      .search-form, .summary-form, .metrics, .grid, .module-grid {{ grid-template-columns: 1fr; }}
+      .search-form, .summary-form, .metrics, .grid, .module-grid, .mission-form {{ grid-template-columns: 1fr; }}
+      .hero h1 {{ font-size: 34px; }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
       main {{ width: min(100vw - 20px, 1180px); margin: 16px auto; }}
     }}

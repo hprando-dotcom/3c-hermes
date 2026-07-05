@@ -25,7 +25,7 @@ def tcesp_home() -> HTMLResponse:
     body = """
     <section class="panel">
       <div class="topbar">
-        <h1>TCE-SP</h1>
+        <h1>Consulta avancada TCE-SP</h1>
         <a class="button secondary" href="/">HERMES</a>
       </div>
       <p class="muted">Consulta das bases de transparência municipal do Tribunal de Contas do Estado de São Paulo.</p>

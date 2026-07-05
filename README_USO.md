@@ -10,10 +10,39 @@ http://IP_PUBLICO_DA_VPS:8000
 
 A tela inicial mostra:
 
-- consulta PMSP Licitacoes;
-- modulo TCE-SP;
+- campo de missao em linguagem natural;
+- exemplos clicaveis de investigacao;
+- relatorios e alertas;
+- fontes monitoradas;
+- modo exploratorio avancado PMSP/TCE-SP;
 - status operacional;
 - link para `/docs`.
+
+## Missoes
+
+A experiencia principal e escrever o que o HERMES deve investigar:
+
+```text
+http://IP_PUBLICO_DA_VPS:8000/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo
+```
+
+Exemplos:
+
+- `obras e manutencao em Sao Paulo`
+- `fornecedores recorrentes em contratos publicos`
+- `movimentacoes de saude`
+- `despesas municipais no TCE-SP`
+- `orgaos mais ativos`
+
+O HERMES devolve resumo executivo, bases consultadas, achados, rankings, evidencias, alertas de qualidade e proximas perguntas sugeridas.
+
+## Relatorios
+
+Atalhos iniciais:
+
+```text
+http://IP_PUBLICO_DA_VPS:8000/relatorios
+```
 
 ## TCE-SP
 
