@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import csv
+import json
+import zipfile
 from pathlib import Path
 
 from hermes.services.deepseek_service import DeepSeekService
@@ -9,6 +12,7 @@ from hermes.services.official_gazette_investigation import (
     deterministic_classify_chunk,
     deterministic_report_markdown,
     extract_mission_terms,
+    markdown_to_html,
     run_official_gazette_investigation,
 )
 
@@ -79,8 +83,30 @@ def test_run_official_gazette_investigation_with_fake_html_and_pdf(tmp_path: Pat
     assert report.findings[0].event_type in {"contrato", "aditivo"}
     assert report.used_deepseek is False
     assert Path(report.markdown_path).exists()
+    assert Path(report.report_html_path).exists()
+    assert Path(report.csv_path).exists()
+    assert Path(report.json_path).exists()
+    assert Path(report.zip_path).exists()
     assert "Relatório HERMES" in report.markdown
     assert any("PDF" in limitation or "pypdf" in limitation for limitation in report.limitations)
+    assert report.investigation_id.startswith("hermes_diario_")
+    assert report.totals["findings"] == len(report.findings)
+
+    csv_rows = list(csv.DictReader(Path(report.csv_path).read_text(encoding="utf-8-sig").splitlines()))
+    assert csv_rows
+    assert "link_fonte" in csv_rows[0]
+
+    payload = json.loads(Path(report.json_path).read_text(encoding="utf-8"))
+    assert payload["investigation_id"] == report.investigation_id
+    assert payload["report_html_path"] == report.report_html_path
+    assert payload["deepseek_used"] is False
+
+    with zipfile.ZipFile(report.zip_path) as archive:
+        names = set(archive.namelist())
+    assert Path(report.markdown_path).name in names
+    assert Path(report.report_html_path).name in names
+    assert Path(report.csv_path).name in names
+    assert Path(report.json_path).name in names
 
 
 def test_markdown_report_does_not_invent_outside_mocked_evidence(tmp_path: Path) -> None:
@@ -118,6 +144,15 @@ def test_deterministic_report_markdown_sections() -> None:
     assert "## 1. Missão" in markdown
     assert "## 10. Próximas ações" in markdown
     assert "fonte sem data explícita" in markdown
+
+
+def test_markdown_to_html_preserves_headings_lists_and_links() -> None:
+    html = markdown_to_html("# Título\n\n## Evidências\n- [Fonte](https://diario.exemplo.gov.br/ato)")
+
+    assert "<h1>Título</h1>" in html
+    assert "<h2>Evidências</h2>" in html
+    assert "<li>" in html
+    assert 'href="https://diario.exemplo.gov.br/ato"' in html
 
 
 def test_deepseek_service_valid_json_response(monkeypatch) -> None:

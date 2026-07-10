@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -30,8 +33,8 @@ def test_home_page_returns_html() -> None:
 
     assert response.status_code == 200
     assert "HERMES" in response.text
-    assert "Investigar" in response.text
-    assert "Agente de Inteligencia sobre Publicacoes Publicas" in response.text
+    assert "HERMES investiga Diários Oficiais para você." in response.text
+    assert "Começar investigação" in response.text
     assert "Consulta avancada TCE-SP" in response.text or "TCE-SP" in response.text
 
 
@@ -72,12 +75,40 @@ def test_mission_pages_return_html_for_initial_intents() -> None:
         assert "Resultado da missao" in response.text
 
 
-def test_reports_page_returns_html() -> None:
+def test_reports_page_empty_state(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("hermes.api.routes.mission.EXPORTS_DIR", tmp_path)
     client = TestClient(create_app())
     response = client.get("/relatorios")
 
     assert response.status_code == 200
-    assert "Relatorios" in response.text
+    assert "Nenhum dossiê gerado ainda" in response.text
+
+
+def test_reports_page_lists_generated_dossier(monkeypatch, tmp_path: Path) -> None:
+    payload = {
+        "investigation_id": "hermes_diario_20260710_153000",
+        "generated_at": "2026-07-10T15:30:00",
+        "mission_text": "obras",
+        "source_url": "https://diario.exemplo.gov.br",
+        "date_start": "2026-07-01",
+        "date_end": "2026-07-10",
+        "deepseek_used": True,
+        "totals": {"findings": 2},
+        "report_html_path": "data/reports/hermes_diario_20260710_153000.html",
+        "report_markdown_path": "data/reports/hermes_diario_20260710_153000.md",
+        "csv_path": "data/exports/hermes_diario_20260710_153000_achados.csv",
+        "json_path": "data/exports/hermes_diario_20260710_153000.json",
+        "zip_path": "data/exports/hermes_diario_20260710_153000_dossie.zip",
+    }
+    (tmp_path / "hermes_diario_20260710_153000.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr("hermes.api.routes.mission.EXPORTS_DIR", tmp_path)
+    client = TestClient(create_app())
+    response = client.get("/relatorios")
+
+    assert response.status_code == 200
+    assert "hermes_diario_20260710_153000" in response.text
+    assert "Abrir relatório HTML" in response.text
+    assert "Baixar Dossiê ZIP" in response.text
 
 
 def test_publication_investigation_routes_return_html() -> None:
@@ -108,6 +139,9 @@ def test_investigar_get_with_query_params_uses_investigation_service(monkeypatch
     assert response.status_code == 200
     assert "Relatório HERMES" in response.text
     assert "Contrato obras" in response.text
+    assert "Produto gerado pelo HERMES" in response.text
+    assert "Baixar relatório Markdown" in response.text
+    assert "Baixar Dossiê ZIP" in response.text
 
 
 def test_investigar_post_uses_investigation_service(monkeypatch) -> None:
@@ -127,6 +161,45 @@ def test_investigar_post_uses_investigation_service(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert "Relatório HERMES" in response.text
+    assert "Produto gerado pelo HERMES" in response.text
+
+
+def test_downloads_allowed_file(monkeypatch, tmp_path: Path) -> None:
+    report_dir = tmp_path / "reports"
+    export_dir = tmp_path / "exports"
+    report_dir.mkdir()
+    export_dir.mkdir()
+    filename = "hermes_diario_20260710_153000.md"
+    (report_dir / filename).write_text("# Relatório", encoding="utf-8")
+    monkeypatch.setattr("hermes.api.routes.publications_ui.REPORTS_DIR", report_dir)
+    monkeypatch.setattr("hermes.api.routes.publications_ui.EXPORTS_DIR", export_dir)
+    client = TestClient(create_app())
+
+    response = client.get(f"/downloads/{filename}")
+
+    assert response.status_code == 200
+    assert "Relatório" in response.text
+
+
+def test_downloads_block_path_traversal(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("hermes.api.routes.publications_ui.REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr("hermes.api.routes.publications_ui.EXPORTS_DIR", tmp_path / "exports")
+    client = TestClient(create_app())
+
+    response = client.get("/downloads/..%2F.env")
+
+    assert response.status_code == 404
+
+
+def test_downloads_block_env(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("hermes.api.routes.publications_ui.REPORTS_DIR", tmp_path)
+    monkeypatch.setattr("hermes.api.routes.publications_ui.EXPORTS_DIR", tmp_path)
+    (tmp_path / ".env").write_text("SECRET=x", encoding="utf-8")
+    client = TestClient(create_app())
+
+    response = client.get("/downloads/.env")
+
+    assert response.status_code == 404
 
 
 def test_tcesp_home_page_returns_html() -> None:
@@ -235,6 +308,7 @@ def fake_investigation(source_url, mission_text, date_start, date_end, limit=50,
         link="https://diario.exemplo.gov.br/ato",
     )
     return InvestigationReport(
+        investigation_id="hermes_diario_20260710_153000",
         source_url=source_url,
         mission_text=mission_text,
         date_start=date_start,
@@ -248,6 +322,14 @@ def fake_investigation(source_url, mission_text, date_start, date_end, limit=50,
         evidence_links=[finding.link],
         markdown="# Relatório HERMES\n\nContrato obras",
         markdown_path="data/reports/mock.md",
+        report_markdown_path="data/reports/hermes_diario_20260710_153000.md",
+        report_html_path="data/reports/hermes_diario_20260710_153000.html",
+        csv_path="data/exports/hermes_diario_20260710_153000_achados.csv",
+        json_path="data/exports/hermes_diario_20260710_153000.json",
+        zip_path="data/exports/hermes_diario_20260710_153000_dossie.zip",
         used_deepseek=False,
         metrics={"documents_analyzed": 1, "chunks_sent_to_ai": 0, "deepseek_calls": 0, "deepseek_failures": 0},
+        totals={"links_found": 1, "documents_analyzed": 1, "findings": 1, "limitations": 0},
+        generated_at="2026-07-10T15:30:00",
+        report_html="<h1>Relatório HERMES</h1>",
     )

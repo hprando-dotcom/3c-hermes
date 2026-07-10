@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import mimetypes
+from pathlib import Path
 from html import escape
 from typing import Any
 from urllib.parse import parse_qs, urlencode
 
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -13,10 +15,12 @@ from sqlalchemy.orm import Session
 from hermes.api.routes.pmsp_ui import html_page, render_error_panel, render_top_list, safe
 from hermes.database.models import PublicSource, Publication, Source
 from hermes.database.session import get_session
-from hermes.services.official_gazette_investigation import InvestigationReport, run_official_gazette_investigation
+from hermes.services.official_gazette_investigation import InvestigationReport, markdown_to_html, run_official_gazette_investigation
 from hermes.services.publication_collection import collect_publications_from_source, inspect_and_store_source
 
 router = APIRouter(tags=["publications-ui"])
+REPORTS_DIR = Path("data/reports")
+EXPORTS_DIR = Path("data/exports")
 
 
 @router.get("/investigar", response_class=HTMLResponse, include_in_schema=False)
@@ -46,18 +50,7 @@ def investigate_source_page(
             )
             return html_page("Investigação HERMES", render_gazette_report(report))
         except Exception as exc:
-            body = f"""
-            <section class="panel">
-              <div class="topbar">
-                <h1>Investigação de Diário Oficial</h1>
-                <a class="button secondary" href="/">HERMES</a>
-              </div>
-              <p class="error">Falha ao executar a investigação.</p>
-              <p class="muted">{safe(exc.__class__.__name__)}: {safe(exc)}</p>
-              {render_investigation_form(target_url, mission, date_start, date_end, limit)}
-            </section>
-            """
-            return html_page("Investigação HERMES", body)
+            return html_page("Investigação HERMES", render_investigation_error(exc, target_url, mission, date_start, date_end, limit))
 
     try:
         if coletar:
@@ -99,18 +92,14 @@ async def investigate_source_post(request: Request) -> HTMLResponse:
         report = run_official_gazette_investigation(source_url, mission, date_start, date_end, limit=limit)
         return html_page("Investigação HERMES", render_gazette_report(report))
     except Exception as exc:
-        body = f"""
-        <section class="panel">
-          <div class="topbar">
-            <h1>Investigação de Diário Oficial</h1>
-            <a class="button secondary" href="/">HERMES</a>
-          </div>
-          <p class="error">Falha ao executar a investigação.</p>
-          <p class="muted">{safe(exc.__class__.__name__)}: {safe(exc)}</p>
-          {render_investigation_form(source_url, mission, date_start, date_end, limit)}
-        </section>
-        """
-        return html_page("Investigação HERMES", body)
+        return html_page("Investigação HERMES", render_investigation_error(exc, source_url, mission, date_start, date_end, limit))
+
+
+@router.get("/downloads/{filename:path}", include_in_schema=False)
+def download_dossier_file(filename: str) -> FileResponse:
+    path = resolve_download_path(filename)
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 
 @router.get("/fontes", response_class=HTMLResponse, include_in_schema=False)
@@ -221,18 +210,41 @@ def render_investigation_form(
     date_end: str | None = None,
     limit: int = 50,
 ) -> str:
+    examples = [
+        "Obras, contratos e aditivos",
+        "Licitações e homologações",
+        "Atas de registro de preços",
+        "Engenharia, pavimentação e drenagem",
+        "Manutenção e conservação",
+    ]
+    example_buttons = "\n".join(
+        f'<button type="button" class="pill mission-example" data-mission="{escape(example)}">{safe(example)}</button>' for example in examples
+    )
     return f"""
-    <section class="panel">
-      <div class="topbar">
-        <h1>Investigar Diário Oficial</h1>
-        <a class="button secondary" href="/">HERMES</a>
+    <section class="product-shell">
+      <header class="site-header">
+        <a class="brand" href="/">HERMES</a>
+        <span>Agente de investigação de Diários Oficiais</span>
+        <nav>
+          <a href="/">Início</a>
+          <a href="/investigar">Investigar</a>
+          <a href="/relatorios">Relatórios</a>
+          <a href="/fontes">Fontes</a>
+          <a href="/publicacoes">Publicações</a>
+          <a href="/status">Status</a>
+          <a href="/pmsp?ano=2015&limite=50">Consultas avançadas</a>
+        </nav>
+      </header>
+      <div class="cockpit-hero">
+        <p class="eyebrow">Cockpit HERMES</p>
+        <h1>Investigue publicações oficiais em minutos.</h1>
+        <p class="lead">Cole o link do Diário Oficial ou portal público, informe o período e descreva o que o HERMES deve procurar.</p>
       </div>
-      <p class="muted">Informe a missão, a URL do Diário Oficial ou portal público e o período. O HERMES coleta publicações, classifica os atos e gera relatório Markdown com evidências.</p>
       <form action="/investigar" method="post" class="search-form">
-        <label>Missão
-          <textarea name="mission" rows="4" placeholder="Ex.: obras contratos aditivos engenharia">{escape(mission or '')}</textarea>
+        <label class="field-wide">Missão
+          <textarea id="mission-text" name="mission" rows="6" placeholder="Procure publicações de obras, engenharia, contratos, licitações, atas de registro de preços, homologações e termos aditivos.">{escape(mission or '')}</textarea>
         </label>
-        <label>URL da fonte oficial
+        <label class="field-wide">URL da fonte oficial
           <input name="source_url" value="{escape(source_url or '')}" placeholder="https://www.prefeitura.sp.gov.br/...">
         </label>
         <label>Data inicial
@@ -246,60 +258,76 @@ def render_investigation_form(
         </label>
         <button type="submit">Investigar Diário Oficial</button>
       </form>
+      <section class="mini-panel">
+        <h2>Exemplos rápidos de missão</h2>
+        <div class="example-list">{example_buttons}</div>
+      </section>
+      <p class="notice">O HERMES acessa apenas conteúdo público. Se a fonte exigir login, captcha, JavaScript pesado ou PDF sem texto, o relatório indicará a limitação.</p>
+      <script>
+        document.querySelectorAll('.mission-example').forEach((button) => {{
+          button.addEventListener('click', () => {{
+            const input = document.getElementById('mission-text');
+            if (input) input.value = button.dataset.mission || '';
+          }});
+        }});
+      </script>
     </section>
     """
 
 
 def render_gazette_report(report: InvestigationReport) -> str:
     findings = report.findings[:20]
-    findings_rows = "\n".join(
-        f"""
-        <tr>
-          <td>{safe(finding.title)}</td>
-          <td>{safe(finding.date or 'data desconhecida')}</td>
-          <td>{safe(finding.event_type)}</td>
-          <td>{safe(finding.natureza)}</td>
-          <td>{safe(finding.score)}</td>
-          <td>{safe(finding.agency)}</td>
-          <td>{safe(finding.company_name)}</td>
-          <td><a href="{escape(finding.link)}" target="_blank" rel="noopener">evidência</a></td>
-        </tr>
-        """
-        for finding in findings
-    )
-    if not findings_rows:
-        findings_rows = '<tr><td colspan="8"><span class="muted">Nenhum achado relevante classificado.</span></td></tr>'
+    finding_cards = "\n".join(render_finding_card(finding) for finding in findings)
+    if not finding_cards:
+        finding_cards = '<p class="empty">Nenhum achado relevante classificado no recorte analisado.</p>'
     evidence_items = "\n".join(f'<li><a href="{escape(link)}" target="_blank" rel="noopener">{safe(link)}</a></li>' for link in report.evidence_links[:30])
     limitation_items = "\n".join(f"<li>{safe(item)}</li>" for item in report.limitations) or '<li class="muted">Nenhuma limitação registrada.</li>'
-    markdown_preview = "\n".join(report.markdown.splitlines()[:80])
     return f"""
-    <section class="panel">
+    <section class="product-shell">
+      <header class="site-header">
+        <a class="brand" href="/">HERMES</a>
+        <span>Dossiê de investigação de Diário Oficial</span>
+        <nav>
+          <a href="/investigar">Nova investigação</a>
+          <a href="/relatorios">Relatórios</a>
+          <a href="/status">Status</a>
+        </nav>
+      </header>
       <div class="topbar">
-        <h1>Relatório HERMES — Investigação de Diário Oficial</h1>
-        <a class="button secondary" href="/">HERMES</a>
+        <div>
+          <p class="eyebrow">Produto gerado</p>
+          <h1>Relatório HERMES — Investigação de Diário Oficial</h1>
+        </div>
+        <a class="button secondary" href="/investigar">Nova investigação</a>
       </div>
       <p class="mission-quote">{safe(report.mission_text)}</p>
-      <div class="metrics">
+      <div class="metrics status-grid">
+        <div><span>ID da investigação</span><strong>{safe(report.investigation_id)}</strong></div>
+        <div><span>Gerado em</span><strong>{safe(report.generated_at)}</strong></div>
+        <div><span>IA</span><strong>{'DeepSeek usado' if report.used_deepseek else 'fallback determinístico'}</strong></div>
         <div><span>Links encontrados</span><strong>{report.links_found}</strong></div>
         <div><span>Documentos analisados</span><strong>{report.documents_analyzed}</strong></div>
         <div><span>Achados</span><strong>{len(report.findings)}</strong></div>
       </div>
       <section class="mini-panel">
-        <h2>Fonte e período</h2>
+        <h2>Status da investigação</h2>
         <p><strong>Fonte:</strong> {safe(report.source_url)}</p>
         <p><strong>Período:</strong> {safe(report.date_start or 'não informado')} a {safe(report.date_end or 'não informado')}</p>
         <p><strong>Estratégia:</strong> {safe(report.strategy)}</p>
-        <p><strong>Relatório Markdown:</strong> {safe(report.markdown_path)}</p>
-        <p><strong>IA:</strong> {'DeepSeek usado' if report.used_deepseek else 'fallback determinístico'}</p>
+      </section>
+      <section class="mini-panel product-highlight">
+        <h2>Produto gerado pelo HERMES</h2>
+        <div class="product-grid">
+          {render_download_card("Relatório Executivo", "Baixar relatório Markdown", report.report_markdown_path)}
+          {render_download_card("Relatório HTML", "Abrir relatório HTML", report.report_html_path, open_new=True)}
+          {render_download_card("Achados Estruturados", "Baixar CSV de achados", report.csv_path)}
+          {render_download_card("Dados da Investigação", "Baixar JSON", report.json_path)}
+          {render_download_card("Dossiê Completo", "Baixar Dossiê ZIP", report.zip_path)}
+        </div>
       </section>
       <section class="mini-panel">
         <h2>Principais achados</h2>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Título</th><th>Data</th><th>Tipo</th><th>Natureza</th><th>Score</th><th>Órgão</th><th>Empresa</th><th>Link</th></tr></thead>
-            <tbody>{findings_rows}</tbody>
-          </table>
-        </div>
+        <div class="finding-grid">{finding_cards}</div>
       </section>
       <div class="grid">
         <section class="mini-panel"><h2>Evidências</h2><ul>{evidence_items or '<li class="muted">Sem evidências.</li>'}</ul></section>
@@ -307,11 +335,105 @@ def render_gazette_report(report: InvestigationReport) -> str:
         <section class="mini-panel"><h2>Métricas</h2><ul>{render_metric_items(report.metrics)}</ul></section>
       </div>
       <section class="mini-panel">
-        <h2>Prévia do Markdown</h2>
-        <pre>{escape(markdown_preview)}</pre>
+        <h2>Relatório formatado</h2>
+        <div class="report-body">{markdown_to_html(report.markdown)}</div>
       </section>
     </section>
     """
+
+
+def render_investigation_error(
+    exc: Exception,
+    source_url: str | None,
+    mission: str | None,
+    date_start: str | None,
+    date_end: str | None,
+    limit: int,
+) -> str:
+    message = str(exc) or exc.__class__.__name__
+    probable_step = "Validação da URL" if isinstance(exc, ValueError) else "Acesso à fonte ou extração do conteúdo público"
+    suggestion = "Revise a URL e tente novamente. Se a fonte exigir login, captcha ou JavaScript pesado, use outra página pública ou registre a limitação no dossiê."
+    return f"""
+    <section class="product-shell">
+      <header class="site-header">
+        <a class="brand" href="/">HERMES</a>
+        <span>Investigação de Diários Oficiais</span>
+        <nav><a href="/investigar">Tentar novamente</a><a href="/status">Status</a></nav>
+      </header>
+      <section class="panel">
+        <p class="eyebrow">Investigação interrompida</p>
+        <h1>Não foi possível concluir a investigação.</h1>
+        <p class="error">{safe(message)}</p>
+        <div class="grid">
+          <section class="mini-panel"><h2>Etapa provável</h2><p>{safe(probable_step)}</p></section>
+          <section class="mini-panel"><h2>Sugestão</h2><p>{safe(suggestion)}</p></section>
+          <section class="mini-panel"><h2>Próximo passo</h2><p><a href="/investigar">Abrir o cockpit e tentar novamente</a></p></section>
+        </div>
+      </section>
+      {render_investigation_form(source_url, mission, date_start, date_end, limit)}
+    </section>
+    """
+
+
+def render_finding_card(finding: Any) -> str:
+    matched_terms = ", ".join(finding.matched_terms or []) or "-"
+    return f"""
+    <article class="finding-card">
+      <div class="finding-card-header">
+        <h3>{safe(finding.title)}</h3>
+        <span class="badge">score {safe(finding.score)}</span>
+      </div>
+      <p class="muted">{safe(finding.date or 'data desconhecida')} · {safe(finding.event_type)} · {safe(finding.natureza)}</p>
+      <dl>
+        <dt>Órgão</dt><dd>{safe(finding.agency)}</dd>
+        <dt>Empresa</dt><dd>{safe(finding.company_name)}</dd>
+        <dt>Processo</dt><dd>{safe(finding.process_number)}</dd>
+        <dt>Contrato</dt><dd>{safe(finding.contract_number)}</dd>
+        <dt>Valor</dt><dd>{safe(finding.value_text)}</dd>
+        <dt>Termos</dt><dd>{safe(matched_terms)}</dd>
+      </dl>
+      <p>{safe(finding.summary or finding.object_text)}</p>
+      <blockquote>{safe(finding.snippet)}</blockquote>
+      <a class="button secondary" href="{escape(finding.link)}" target="_blank" rel="noopener">Abrir fonte</a>
+    </article>
+    """
+
+
+def render_download_card(title: str, action: str, path: str | None, *, open_new: bool = False) -> str:
+    filename = Path(path or "").name
+    if not filename:
+        return f"""
+        <article class="download-card">
+          <strong>{safe(title)}</strong>
+          <span class="muted">Arquivo indisponível.</span>
+        </article>
+        """
+    target = " target=\"_blank\" rel=\"noopener\"" if open_new else ""
+    return f"""
+    <article class="download-card">
+      <strong>{safe(title)}</strong>
+      <span>{safe(filename)}</span>
+      <a class="button" href="/downloads/{escape(filename)}"{target}>{safe(action)}</a>
+    </article>
+    """
+
+
+def resolve_download_path(filename: str) -> Path:
+    raw = filename or ""
+    if "\\" in raw or "/" in raw or ".." in raw or raw.startswith(".") or Path(raw).is_absolute():
+        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
+    if raw.lower() == ".env" or raw.lower().endswith(".env"):
+        raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
+    for directory in (REPORTS_DIR, EXPORTS_DIR):
+        root = directory.resolve()
+        candidate = (directory / raw).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            continue
+        if candidate.is_file():
+            return candidate
+    raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
 
 
 def render_inspection_result(inspection: dict[str, Any]) -> str:

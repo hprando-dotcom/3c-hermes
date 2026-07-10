@@ -10,12 +10,11 @@ http://IP_PUBLICO_DA_VPS:8000
 
 A tela inicial mostra:
 
-- campo de missao em linguagem natural;
-- campo de URL da fonte oficial;
-- botao `Investigar Diario Oficial`;
-- exemplos clicaveis de investigacao;
-- relatorios e alertas;
+- chamada principal para o cockpit `/investigar`;
+- botao `Comecar investigacao`;
+- historico de dossies em `/relatorios`;
 - fontes monitoradas;
+- publicacoes coletadas;
 - modo exploratorio avancado PMSP/TCE-SP;
 - status operacional;
 - link para `/docs`.
@@ -40,11 +39,13 @@ O HERMES devolve resumo executivo, bases consultadas, achados, rankings, evidenc
 
 ## Relatorios
 
-Atalhos iniciais:
+Historico de dossies gerados:
 
 ```text
 http://IP_PUBLICO_DA_VPS:8000/relatorios
 ```
+
+Cada item mostra missao, fonte, periodo, total de achados, uso de DeepSeek e botoes para abrir HTML ou baixar Markdown, CSV, JSON e ZIP.
 
 ## Investigar Diario Oficial
 
@@ -60,10 +61,10 @@ Com URL:
 http://IP_PUBLICO_DA_VPS:8000/investigar?source_url=https://exemplo.gov.br/publicacoes&mission=obras%20contratos%20aditivos%20engenharia&date_start=2026-07-01&date_end=2026-07-10&limit=50
 ```
 
-O HERMES detecta links, PDFs e publicacoes candidatas, extrai texto, classifica achados com DeepSeek quando `DEEPSEEK_API_KEY` existe e gera relatório Markdown em `data/reports`.
+O HERMES detecta links, PDFs e publicacoes candidatas, extrai texto, classifica achados com DeepSeek quando `DEEPSEEK_API_KEY` existe e gera um dossie baixavel com Markdown, HTML, CSV, JSON e ZIP.
 
 ```bash
-docker compose run --rm --no-deps -v /opt/hermes/data/reports:/app/data/reports api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
+docker compose run --rm --no-deps -v /opt/hermes/data:/app/data api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
 ```
 
 Consultas:

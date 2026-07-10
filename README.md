@@ -12,9 +12,9 @@ O HERMES nao deve ser tratado como um formulario de consulta manual. A experienc
 - Modelagem inicial para fontes, publicacoes, versoes, arquivos, empresas, classificacoes e execucoes de coleta.
 - Modulos `collector`, `parser`, `classifier`, `scheduler`, `database`, `api`, `services`, `config`, `logs`, `scripts` e `docs`.
 - Home orientada por missao em `/`.
-- Investigacao de fonte oficial por URL em `/investigar`.
+- Cockpit web em `/investigar` para investigar Diario Oficial por missao, fonte, periodo e limite.
 - Rota `/missao` para investigacao heuristica inicial.
-- Relatorios em `/relatorios`.
+- Historico de dossies baixaveis em `/relatorios`.
 - Endpoints operacionais `/status`, `/health`, `/version`, `/openapi.json` e `/docs`.
 - Configuracao por `.env`.
 - Logging estruturado.
@@ -88,13 +88,15 @@ curl http://localhost:8000/openapi.json
 
 ## Endpoints
 
-- `GET /`: tela inicial HERMES.
+- `GET /`: tela inicial orientada ao cockpit de Diario Oficial.
 - `GET /missao?q=...`: executa uma missao em linguagem natural e devolve resposta executiva.
-- `GET /investigar`: investiga URL de Diario Oficial ou portal publico com missao, periodo, DeepSeek opcional e relatorio Markdown.
+- `GET /investigar`: cockpit para executar investigacao de Diario Oficial e gerar dossie.
+- `POST /investigar`: executa a investigacao pela web.
+- `GET /downloads/{filename}`: baixa arquivos gerados do dossie, restrito a `data/reports` e `data/exports`.
 - `GET /fontes`: lista fontes oficiais inspecionadas.
 - `GET /publicacoes`: lista publicacoes oficiais coletadas.
 - `GET /publicacoes/resumo`: resume fontes, publicacoes, tipos e alertas.
-- `GET /relatorios`: atalhos iniciais de relatorios e investigacoes recorrentes.
+- `GET /relatorios`: historico de dossies gerados com Markdown, HTML, CSV, JSON e ZIP.
 - `GET /status`: status operacional, conexao com banco e totais por base.
 - `GET /health`: status do servico e conectividade com banco.
 - `GET /version`: nome, versao e ambiente.
@@ -310,9 +312,26 @@ http://IP_PUBLICO_DA_VPS:8000/status
 
 Documentacao: `docs/HERMES_ARQUITETURA_PRODUTO.md`, `docs/HERMES_TCESP.md` e `README_USO.md`.
 
-## Scraping de publicacoes oficiais
+## Cockpit e dossies de Diario Oficial
 
-O HERMES pode investigar uma fonte oficial informada pelo usuario:
+O fluxo principal do HERMES e pelo navegador:
+
+```text
+http://IP_PUBLICO_DA_VPS:8000/investigar
+http://IP_PUBLICO_DA_VPS:8000/relatorios
+```
+
+O usuario informa missao, URL da fonte oficial, periodo e limite. O HERMES analisa HTML/PDF quando possivel, usa DeepSeek se `DEEPSEEK_API_KEY` existir, cai para classificador deterministico quando necessario e gera um dossie com:
+
+- `data/reports/{investigation_id}.md`
+- `data/reports/{investigation_id}.html`
+- `data/exports/{investigation_id}_achados.csv`
+- `data/exports/{investigation_id}.json`
+- `data/exports/{investigation_id}_dossie.zip`
+
+O ZIP contem Markdown, HTML, CSV e JSON. O HTML e imprimivel pelo navegador.
+
+Scripts operacionais continuam disponiveis:
 
 ```bash
 python scripts/inspect_publication_source.py --url https://exemplo.gov.br/publicacoes
@@ -329,7 +348,7 @@ Na VPS:
 cd /opt/hermes
 docker compose run --rm api alembic upgrade head
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
-docker compose run --rm --no-deps -v /opt/hermes/data/reports:/app/data/reports api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
+docker compose run --rm --no-deps -v /opt/hermes/data:/app/data api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
 ```
 
 Documentacao: `docs/HERMES_PUBLICACOES_SCRAPING.md`.

@@ -23,7 +23,7 @@ URL + periodo + missao
 -> triagem por termos
 -> DeepSeek classifica/interpreta quando DEEPSEEK_API_KEY existe
 -> fallback deterministico quando IA indisponivel
--> relatorio Markdown/HTML com evidencias
+-> dossie Markdown/HTML/CSV/JSON/ZIP com evidencias
 ```
 
 ## Camada de conectores
@@ -163,11 +163,21 @@ Saida:
 - evidencias com links;
 - limitacoes;
 - metricas de custo aproximadas;
-- relatorio Markdown salvo em `data/reports/`.
+- dossie salvo em `data/reports/` e `data/exports/`.
+
+Arquivos gerados por investigacao:
+
+- `data/reports/{investigation_id}.md`
+- `data/reports/{investigation_id}.html`
+- `data/exports/{investigation_id}_achados.csv`
+- `data/exports/{investigation_id}.json`
+- `data/exports/{investigation_id}_dossie.zip`
 
 ## Rotas web
 
-- `/investigar`: formulario e resultado de investigacao de URL oficial.
+- `/investigar`: cockpit e resultado de investigacao de Diario Oficial.
+- `/downloads/{filename}`: download seguro dos arquivos de dossie em `data/reports` ou `data/exports`.
+- `/relatorios`: historico dos dossies gerados.
 - `/fontes`: fontes oficiais investigadas.
 - `/publicacoes`: publicacoes coletadas.
 - `/publicacoes/resumo`: resumo de fontes, publicacoes, tipos e alertas.
@@ -191,13 +201,14 @@ Coletar por Docker:
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/inspect_publication_source.py --url https://exemplo.gov.br/publicacoes
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/check_publications_db.py
-docker compose run --rm --no-deps -v /opt/hermes/data/reports:/app/data/reports api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
+docker compose run --rm --no-deps -v /opt/hermes/data:/app/data api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
 ```
 
 ## Limites atuais
 
 - O scraping inicial e conservador e baseado em HTML, links e endpoints candidatos.
 - Nao executa JavaScript de paginas dinamicas.
-- Nao baixa conteudo integral de PDFs nesta etapa; detecta e registra links PDF.
+- Tenta extrair texto de PDFs com `pypdf`, mas PDF-imagem/OCR fica como limitacao registrada.
 - Endpoints candidatos podem exigir autenticacao ou parametros.
 - A coleta pesada e controlada por `--limite`.
+- PDF nativo nao e gerado nesta etapa; o HTML do relatorio e imprimivel pelo navegador.

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import re
+import csv
+import json
+import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from html import escape
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable
@@ -18,6 +22,7 @@ FetchResult = dict[str, Any]
 Fetcher = Callable[[str], FetchResult]
 
 DEFAULT_REPORT_DIR = Path("data/reports")
+DEFAULT_EXPORT_DIR = Path("data/exports")
 MAX_AI_CHUNKS = 12
 MAX_CHARS_PER_CHUNK = 3500
 MAX_DOCUMENT_CHARS = 40000
@@ -128,6 +133,7 @@ class GazetteFinding:
 
 @dataclass(slots=True)
 class InvestigationReport:
+    investigation_id: str
     source_url: str
     mission_text: str
     date_start: str | None
@@ -141,16 +147,28 @@ class InvestigationReport:
     evidence_links: list[str]
     markdown: str
     markdown_path: str
+    report_markdown_path: str
+    report_html_path: str
+    csv_path: str
+    json_path: str
+    zip_path: str
     used_deepseek: bool
     metrics: dict[str, Any]
+    totals: dict[str, Any] = field(default_factory=dict)
+    generated_at: str = ""
+    report_html: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "investigation_id": self.investigation_id,
             "source_url": self.source_url,
             "mission_text": self.mission_text,
             "date_start": self.date_start,
             "date_end": self.date_end,
             "strategy": self.strategy,
+            "deepseek_used": self.used_deepseek,
+            "generated_at": self.generated_at,
+            "totals": self.totals,
             "mission_context": self.mission_context,
             "links_found": self.links_found,
             "documents_analyzed": self.documents_analyzed,
@@ -159,6 +177,11 @@ class InvestigationReport:
             "evidence_links": self.evidence_links,
             "markdown": self.markdown,
             "markdown_path": self.markdown_path,
+            "report_markdown_path": self.report_markdown_path,
+            "report_html_path": self.report_html_path,
+            "csv_path": self.csv_path,
+            "json_path": self.json_path,
+            "zip_path": self.zip_path,
             "used_deepseek": self.used_deepseek,
             "metrics": self.metrics,
         }
@@ -174,6 +197,7 @@ def run_official_gazette_investigation(
     fetcher: Fetcher | None = None,
     deepseek_service: DeepSeekService | None = None,
     report_dir: Path | str = DEFAULT_REPORT_DIR,
+    export_dir: Path | str | None = None,
 ) -> InvestigationReport:
     source_url = validate_source_url(source_url)
     limit = max(1, min(int(limit or 50), 200))
@@ -262,8 +286,22 @@ def run_official_gazette_investigation(
         limitations.append(f"DeepSeek relatorio indisponivel: {improved.error}")
         markdown = deterministic_report_markdown({**report_input, "limitations": limitations})
 
-    markdown_path = save_markdown_report(markdown, report_dir)
-    return InvestigationReport(
+    limitations = dedupe_strings(limitations)
+    evidence_links = dedupe_strings([finding.link for finding in findings] + [doc.url for doc in documents])
+    report_dir_path = Path(report_dir)
+    export_dir_path = resolve_export_dir(report_dir_path, export_dir)
+    investigation_id = create_investigation_id(report_dir_path, export_dir_path)
+    generated_at = datetime.now().isoformat(timespec="seconds")
+    totals = {
+        "links_found": len(raw_links),
+        "documents_analyzed": len(documents),
+        "findings": len(findings),
+        "limitations": len(limitations),
+    }
+    paths = build_dossier_paths(investigation_id, report_dir_path, export_dir_path)
+    report_html = build_report_html_document(markdown, investigation_id=investigation_id, generated_at=generated_at)
+    report = InvestigationReport(
+        investigation_id=investigation_id,
         source_url=source_url,
         mission_text=mission_text,
         date_start=date_start,
@@ -273,13 +311,23 @@ def run_official_gazette_investigation(
         links_found=len(raw_links),
         documents_analyzed=len(documents),
         findings=findings,
-        limitations=dedupe_strings(limitations),
-        evidence_links=dedupe_strings([finding.link for finding in findings] + [doc.url for doc in documents]),
+        limitations=limitations,
+        evidence_links=evidence_links,
         markdown=markdown,
-        markdown_path=str(markdown_path),
+        markdown_path=str(paths["markdown"]),
+        report_markdown_path=str(paths["markdown"]),
+        report_html_path=str(paths["html"]),
+        csv_path=str(paths["csv"]),
+        json_path=str(paths["json"]),
+        zip_path=str(paths["zip"]),
         used_deepseek=used_deepseek,
         metrics=metrics,
+        totals=totals,
+        generated_at=generated_at,
+        report_html=report_html,
     )
+    save_dossier_files(report, paths)
+    return report
 
 
 def validate_source_url(source_url: str) -> str:
@@ -664,6 +712,175 @@ def build_executive_summary(report_input: dict[str, Any]) -> str:
         f"Foram identificados {len(findings)} achados relevantes em {report_input.get('documents_analyzed')} documentos analisados. "
         f"O achado mais relevante foi classificado como {top.get('event_type')} / {top.get('natureza')} com score {top.get('score')}. "
         "Os links das evidências foram preservados para auditoria."
+    )
+
+
+def resolve_export_dir(report_dir: Path, export_dir: Path | str | None) -> Path:
+    if export_dir is not None:
+        return Path(export_dir)
+    if report_dir.name == "reports":
+        return report_dir.parent / "exports"
+    return report_dir / "exports"
+
+
+def create_investigation_id(report_dir: Path, export_dir: Path, now: datetime | None = None) -> str:
+    timestamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S")
+    base = f"hermes_diario_{timestamp}"
+    for suffix in [""] + [f"_{index:02d}" for index in range(2, 100)]:
+        candidate = f"{base}{suffix}"
+        paths = build_dossier_paths(candidate, report_dir, export_dir)
+        if not any(path.exists() for path in paths.values()):
+            return candidate
+    return f"{base}_{datetime.now().strftime('%f')}"
+
+
+def build_dossier_paths(investigation_id: str, report_dir: Path, export_dir: Path) -> dict[str, Path]:
+    return {
+        "markdown": report_dir / f"{investigation_id}.md",
+        "html": report_dir / f"{investigation_id}.html",
+        "csv": export_dir / f"{investigation_id}_achados.csv",
+        "json": export_dir / f"{investigation_id}.json",
+        "zip": export_dir / f"{investigation_id}_dossie.zip",
+    }
+
+
+def save_dossier_files(report: InvestigationReport, paths: dict[str, Path]) -> None:
+    for path in paths.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+    paths["markdown"].write_text(report.markdown.rstrip() + "\n", encoding="utf-8")
+    paths["html"].write_text(report.report_html, encoding="utf-8")
+    write_findings_csv(report.findings, paths["csv"])
+    paths["json"].write_text(json.dumps(report.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with zipfile.ZipFile(paths["zip"], "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for key in ("markdown", "html", "csv", "json"):
+            archive.write(paths[key], arcname=paths[key].name)
+
+
+def write_findings_csv(findings: list[GazetteFinding], path: Path) -> None:
+    fieldnames = [
+        "titulo",
+        "data",
+        "tipo_evento",
+        "natureza",
+        "score",
+        "orgao",
+        "empresa",
+        "processo",
+        "contrato",
+        "valor",
+        "termos_encontrados",
+        "trecho",
+        "link_fonte",
+    ]
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for finding in findings:
+            writer.writerow(
+                {
+                    "titulo": finding.title,
+                    "data": finding.date or "",
+                    "tipo_evento": finding.event_type,
+                    "natureza": finding.natureza,
+                    "score": finding.score,
+                    "orgao": finding.agency or "",
+                    "empresa": finding.company_name or "",
+                    "processo": finding.process_number or "",
+                    "contrato": finding.contract_number or "",
+                    "valor": finding.value_text or "",
+                    "termos_encontrados": "; ".join(finding.matched_terms),
+                    "trecho": finding.snippet,
+                    "link_fonte": finding.link,
+                }
+            )
+
+
+def build_report_html_document(markdown: str, *, investigation_id: str, generated_at: str) -> str:
+    return f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relatório HERMES — {escape(investigation_id)}</title>
+  <style>
+    :root {{ color-scheme: light; --text: #1f2933; --muted: #5b6673; --line: #d9dee5; --bg: #f6f7f9; --panel: #ffffff; --primary: #1f6feb; }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; background: var(--bg); color: var(--text); font-family: Arial, Helvetica, sans-serif; line-height: 1.55; }}
+    main {{ width: min(920px, calc(100vw - 32px)); margin: 32px auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 32px; box-shadow: 0 1px 2px rgba(20, 28, 38, 0.06); }}
+    h1 {{ margin-top: 0; font-size: 30px; }}
+    h2 {{ margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 22px; }}
+    h3 {{ margin-top: 22px; font-size: 18px; }}
+    a {{ color: var(--primary); overflow-wrap: anywhere; }}
+    li {{ margin: 7px 0; }}
+    .meta {{ margin: 0 0 24px; color: var(--muted); }}
+    @media print {{ body {{ background: #fff; }} main {{ width: auto; margin: 0; border: 0; box-shadow: none; }} a {{ color: #000; }} }}
+  </style>
+</head>
+<body>
+  <main>
+    <p class="meta">ID da investigação: {escape(investigation_id)} · Gerado em {escape(generated_at)}</p>
+    {markdown_to_html(markdown)}
+  </main>
+</body>
+</html>"""
+
+
+def markdown_to_html(markdown: str) -> str:
+    html_parts: list[str] = []
+    in_list = False
+    for raw_line in markdown.splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            continue
+        if line.startswith("### "):
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append(f"<h3>{render_inline_markdown(line[4:])}</h3>")
+        elif line.startswith("## "):
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append(f"<h2>{render_inline_markdown(line[3:])}</h2>")
+        elif line.startswith("# "):
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append(f"<h1>{render_inline_markdown(line[2:])}</h1>")
+        elif line.startswith("- "):
+            if not in_list:
+                html_parts.append("<ul>")
+                in_list = True
+            html_parts.append(f"<li>{render_inline_markdown(line[2:])}</li>")
+        elif line.startswith("> "):
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append(f"<blockquote>{render_inline_markdown(line[2:])}</blockquote>")
+        else:
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append(f"<p>{render_inline_markdown(line)}</p>")
+    if in_list:
+        html_parts.append("</ul>")
+    return "\n".join(html_parts)
+
+
+def render_inline_markdown(text: str) -> str:
+    escaped = escape(text)
+    escaped = re.sub(
+        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+        lambda match: f'<a href="{match.group(2)}" target="_blank" rel="noopener">{match.group(1)}</a>',
+        escaped,
+    )
+    return re.sub(
+        r"(?<![\"'>])(https?://[^\s<]+)",
+        lambda match: f'<a href="{match.group(1)}" target="_blank" rel="noopener">{match.group(1)}</a>',
+        escaped,
     )
 
 

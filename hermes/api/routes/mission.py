@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from html import escape
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -12,6 +14,7 @@ from hermes.database.session import get_session
 from hermes.services.mission_intelligence import default_suggestions, investigate_mission
 
 router = APIRouter(tags=["missions"])
+EXPORTS_DIR = Path("data/exports")
 
 
 @router.get("/missao", response_class=HTMLResponse, include_in_schema=False)
@@ -29,48 +32,83 @@ def mission_page(
 
 @router.get("/relatorios", response_class=HTMLResponse, include_in_schema=False)
 def reports_page() -> HTMLResponse:
-    reports = [
-        {
-            "title": "Resumo PMSP",
-            "description": "Visao consolidada da base PMSP Licitacoes carregada.",
-            "href": "/pmsp/resumo?ano=2015",
-        },
-        {
-            "title": "Engenharia e manutencao PMSP",
-            "description": "Missao pronta para obras, manutencao, reformas e engenharia.",
-            "href": "/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo",
-        },
-        {
-            "title": "Fornecedores PMSP",
-            "description": "Ranking inicial de fornecedores recorrentes em contratos publicos.",
-            "href": "/missao?q=fornecedores%20recorrentes%20em%20contratos%20publicos",
-        },
-        {
-            "title": "Resumo TCE-SP",
-            "description": "Totais, rankings e alertas das tabelas TCE-SP persistidas.",
-            "href": "/tcesp/resumo?ano=2015",
-        },
-    ]
-    cards = "\n".join(
-        f"""
-        <a class="module-card" href="{escape(report['href'])}">
-          <strong>{safe(report['title'])}</strong>
-          <span>{safe(report['description'])}</span>
-        </a>
+    reports = load_dossier_history()
+    if reports:
+        cards = "\n".join(render_dossier_card(report) for report in reports)
+    else:
+        cards = """
+        <section class="mini-panel">
+          <h2>Nenhum dossiê gerado ainda.</h2>
+          <p class="empty">Comece uma investigação para gerar o primeiro relatório executivo, achados estruturados e pacote ZIP.</p>
+          <a class="button" href="/investigar">Começar investigação</a>
+        </section>
         """
-        for report in reports
-    )
     body = f"""
     <section class="panel">
       <div class="topbar">
-        <h1>Relatorios</h1>
+        <h1>Relatórios HERMES</h1>
         <a class="button secondary" href="/">HERMES</a>
       </div>
-      <p class="muted">Atalhos iniciais para investigacoes recorrentes. A persistencia de relatorios entra em etapa futura.</p>
+      <p class="muted">Histórico dos dossiês gerados pelo cockpit de investigação de Diários Oficiais.</p>
       <div class="module-grid">{cards}</div>
     </section>
     """
     return html_page("Relatorios HERMES", body)
+
+
+def load_dossier_history() -> list[dict[str, Any]]:
+    if not EXPORTS_DIR.exists():
+        return []
+    reports: list[dict[str, Any]] = []
+    for path in EXPORTS_DIR.glob("hermes_diario_*.json"):
+        if path.name.endswith("_summary.json"):
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict) or not payload.get("investigation_id"):
+            continue
+        payload["_json_file"] = str(path)
+        reports.append(payload)
+    reports.sort(key=lambda item: str(item.get("generated_at") or ""), reverse=True)
+    return reports
+
+
+def render_dossier_card(report: dict[str, Any]) -> str:
+    investigation_id = str(report.get("investigation_id") or "dossie")
+    generated_at = report.get("generated_at") or "data não informada"
+    mission = report.get("mission_text") or "-"
+    source_url = report.get("source_url") or "-"
+    date_start = report.get("date_start") or "não informado"
+    date_end = report.get("date_end") or "não informado"
+    totals = report.get("totals") if isinstance(report.get("totals"), dict) else {}
+    findings_count = totals.get("findings", len(report.get("findings") or []))
+    deepseek = "DeepSeek usado" if report.get("deepseek_used") or report.get("used_deepseek") else "fallback determinístico"
+    return f"""
+    <article class="module-card dossier-card">
+      <strong>{safe(investigation_id)}</strong>
+      <span>{safe(generated_at)} · {safe(findings_count)} achados · {safe(deepseek)}</span>
+      <p><strong>Missão:</strong> {safe(mission)}</p>
+      <p><strong>Fonte:</strong> {safe(source_url)}</p>
+      <p><strong>Período:</strong> {safe(date_start)} a {safe(date_end)}</p>
+      <div class="actions">
+        {render_dossier_link("Abrir relatório HTML", report.get("report_html_path"), open_new=True)}
+        {render_dossier_link("Baixar Markdown", report.get("report_markdown_path") or report.get("markdown_path"))}
+        {render_dossier_link("Baixar CSV", report.get("csv_path"))}
+        {render_dossier_link("Baixar JSON", report.get("json_path"))}
+        {render_dossier_link("Baixar Dossiê ZIP", report.get("zip_path"))}
+      </div>
+    </article>
+    """
+
+
+def render_dossier_link(label: str, path: Any, *, open_new: bool = False) -> str:
+    filename = Path(str(path or "")).name
+    if not filename:
+        return ""
+    target = " target=\"_blank\" rel=\"noopener\"" if open_new else ""
+    return f'<a class="button secondary" href="/downloads/{escape(filename)}"{target}>{safe(label)}</a>'
 
 
 def render_empty_mission() -> str:

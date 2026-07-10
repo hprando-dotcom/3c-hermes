@@ -33,7 +33,12 @@ def main() -> int:
     print(f"Links encontrados: {report.links_found}")
     print(f"Achados relevantes: {len(report.findings)}")
     print(f"Inteligencia: {'DeepSeek' if report.used_deepseek else 'fallback deterministico'}")
+    print(f"ID da investigacao: {report.investigation_id}")
     print(f"Relatorio Markdown: {report.markdown_path}")
+    print(f"Relatorio HTML: {report.report_html_path}")
+    print(f"CSV de achados: {report.csv_path}")
+    print(f"JSON estruturado: {report.json_path}")
+    print(f"Dossie ZIP: {report.zip_path}")
     if report.limitations:
         print("")
         print("Limitacoes:")

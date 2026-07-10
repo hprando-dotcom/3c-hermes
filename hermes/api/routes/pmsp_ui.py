@@ -18,75 +18,44 @@ router = APIRouter(tags=["pmsp-ui"])
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 def home() -> HTMLResponse:
     return html_page(
-        "HERMES - Agente de Inteligencia sobre Publicacoes Publicas",
+        "HERMES investiga Diários Oficiais para você.",
         """
         <section class="hero">
-          <p class="eyebrow">Agente de Inteligencia sobre Publicacoes Publicas</p>
-          <h1>HERMES</h1>
-          <p class="lead">O HERMES investiga publicacoes publicas para voce, cruza fontes oficiais e entrega achados, alertas e relatorios acionaveis.</p>
-          <form action="/investigar" method="get" class="search-form">
-            <label>Missão
-              <textarea name="mission" rows="4" placeholder="Ex.: obras contratos aditivos engenharia"></textarea>
-            </label>
-            <label>URL do Diário Oficial ou portal público
-              <input name="source_url" placeholder="https://www.prefeitura.sp.gov.br/...">
-            </label>
-            <label>Data inicial
-              <input type="date" name="date_start">
-            </label>
-            <label>Data final
-              <input type="date" name="date_end">
-            </label>
-            <label>Limite
-              <input type="number" name="limit" value="50" min="1" max="200">
-            </label>
-            <button type="submit">Investigar Diário Oficial</button>
-          </form>
-          <div class="example-list">
-            <a class="pill" href="/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo">Obras e manutencao em Sao Paulo</a>
-            <a class="pill" href="/missao?q=fornecedores%20recorrentes%20em%20contratos%20publicos">Fornecedores recorrentes</a>
-            <a class="pill" href="/missao?q=movimentacoes%20de%20saude">Movimentacoes de saude</a>
-            <a class="pill" href="/missao?q=despesas%20municipais%20no%20TCE-SP">Despesas municipais no TCE-SP</a>
-            <a class="pill" href="/missao?q=orgaos%20mais%20ativos">Orgaos mais ativos</a>
-            <a class="pill" href="/investigar">Investigar uma fonte oficial</a>
-          </div>
+          <p class="eyebrow">Plataforma web de investigação pública</p>
+          <h1>HERMES investiga Diários Oficiais para você.</h1>
+          <p class="lead">Informe uma missão, cole o link da fonte oficial e receba um dossiê com achados, evidências e arquivos baixáveis.</p>
           <div class="quick-actions">
-            <a class="button secondary" href="/relatorios">Relatorios</a>
+            <a class="button" href="/investigar">Começar investigação</a>
             <a class="button secondary" href="/fontes">Fontes</a>
-            <a class="button secondary" href="/publicacoes">Publicacoes</a>
+            <a class="button secondary" href="/relatorios">Relatórios</a>
             <a class="button secondary" href="/status">Status</a>
-            <a class="button secondary" href="/docs">OpenAPI Docs</a>
           </div>
         </section>
         <section class="module-grid">
-          <a class="module-card" href="/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo">
-            <strong>Missoes recentes</strong>
-            <span>Reabra investigacoes frequentes sobre obras, manutencao, fornecedores, saude e orgaos ativos.</span>
+          <a class="module-card" href="/investigar">
+            <strong>Investigar Diário Oficial</strong>
+            <span>Abra o cockpit, descreva a missão e gere um dossiê baixável.</span>
           </a>
           <a class="module-card" href="/relatorios">
-            <strong>Relatorios</strong>
-            <span>Atalhos para resumos executivos e investigacoes prontas.</span>
+            <strong>Ver relatórios gerados</strong>
+            <span>Histórico dos dossiês com Markdown, HTML, CSV, JSON e ZIP.</span>
           </a>
-          <a class="module-card" href="/status">
-            <strong>Alertas</strong>
-            <span>Qualidade das bases, lacunas e sinais operacionais do sistema.</span>
-          </a>
-          <a class="module-card" href="/status">
+          <a class="module-card" href="/fontes">
             <strong>Fontes monitoradas</strong>
-            <span>PMSP, TCE-SP e fontes oficiais inspecionadas por URL pelo agente investigador.</span>
+            <span>URLs oficiais já inspecionadas pelo HERMES.</span>
           </a>
-          <a class="module-card" href="/publicacoes/resumo">
-            <strong>Publicacoes oficiais</strong>
-            <span>Resumo das publicacoes coletadas por scraping, PDFs e endpoints detectados.</span>
+          <a class="module-card" href="/publicacoes">
+            <strong>Publicações coletadas</strong>
+            <span>Conteúdo público coletado e normalizado a partir das fontes oficiais.</span>
           </a>
           <a class="module-card" href="/status">
             <strong>Status do sistema</strong>
-            <span>API, banco, totais carregados e alertas operacionais em uma visao unica.</span>
+            <span>API, banco, totais carregados e alertas operacionais.</span>
           </a>
         </section>
         <section class="panel">
-          <h2>Modo exploratorio avancado</h2>
-          <p class="muted">Consultas tecnicas continuam disponiveis para auditoria, validacao e exploracao manual das bases.</p>
+          <h2>Consultas avançadas / bases auxiliares</h2>
+          <p class="muted">PMSP e TCE-SP continuam disponíveis para auditoria, validação e cruzamento com dossiês de Diários Oficiais.</p>
           <div class="actions">
             <a class="button secondary" href="/pmsp?ano=2015&limite=50">Consulta avancada PMSP</a>
             <a class="button secondary" href="/tcesp">Consulta avancada TCE-SP</a>
@@ -409,11 +378,63 @@ def html_page(title: str, body: str) -> HTMLResponse:
       padding: 22px;
       box-shadow: 0 1px 2px rgba(20, 28, 38, 0.06);
     }}
+    .product-shell {{
+      display: grid;
+      gap: 18px;
+    }}
+    .site-header {{
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 1px 2px rgba(20, 28, 38, 0.06);
+    }}
+    .site-header .brand {{
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 800;
+      text-decoration: none;
+    }}
+    .site-header span {{
+      color: var(--muted);
+      font-size: 14px;
+    }}
+    .site-header nav {{
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-left: auto;
+    }}
+    .site-header nav a {{
+      color: var(--muted);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+    }}
+    .site-header nav a:hover {{ color: var(--primary); }}
+    .cockpit-hero {{
+      padding: 30px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 1px 2px rgba(20, 28, 38, 0.06);
+    }}
+    .cockpit-hero h1 {{
+      max-width: 760px;
+      margin-bottom: 8px;
+      font-size: 38px;
+    }}
     .search-form, .summary-form {{
       display: grid;
       grid-template-columns: repeat(4, minmax(140px, 1fr));
       gap: 14px;
       align-items: end;
+    }}
+    .search-form .field-wide {{
+      grid-column: 1 / -1;
     }}
     .summary-form {{
       grid-template-columns: minmax(140px, 220px) auto;
@@ -450,6 +471,99 @@ def html_page(title: str, body: str) -> HTMLResponse:
     .secondary {{ color: var(--text); background: #eef2f7; }}
     .secondary:hover {{ background: #e3e9f2; }}
     .actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+    .notice {{
+      padding: 14px 16px;
+      border: 1px solid #c7d7fe;
+      border-radius: 8px;
+      color: #1d3b77;
+      background: #eef4ff;
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      color: #1d3b77;
+      background: #eef4ff;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+    .product-highlight {{
+      border-color: #b8cdf9;
+      background: #fbfdff;
+    }}
+    .product-grid, .finding-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 14px;
+    }}
+    .download-card, .finding-card {{
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }}
+    .download-card strong {{
+      font-size: 17px;
+    }}
+    .download-card span {{
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }}
+    .finding-card-header {{
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }}
+    .finding-card h3 {{
+      margin: 0;
+      font-size: 18px;
+    }}
+    .finding-card dl {{
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 6px 10px;
+      margin: 0;
+    }}
+    .finding-card dt {{
+      color: var(--muted);
+      font-weight: 700;
+    }}
+    .finding-card dd {{
+      margin: 0;
+    }}
+    .finding-card blockquote {{
+      margin: 0;
+      padding: 12px;
+      border-left: 4px solid var(--line);
+      background: #f7f9fc;
+      color: var(--muted);
+      max-height: 180px;
+      overflow: auto;
+    }}
+    .report-body {{
+      max-width: 880px;
+    }}
+    .report-body h1 {{
+      font-size: 28px;
+    }}
+    .report-body h2 {{
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }}
+    .report-body a {{
+      color: var(--primary);
+      overflow-wrap: anywhere;
+    }}
+    .dossier-card p {{
+      margin: 0;
+    }}
     .example-list {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }}
     .pill {{
       display: inline-flex;
@@ -483,9 +597,12 @@ def html_page(title: str, body: str) -> HTMLResponse:
     li {{ margin: 8px 0; }}
     li strong {{ float: right; margin-left: 12px; }}
     @media (max-width: 820px) {{
-      .search-form, .summary-form, .metrics, .grid, .module-grid, .mission-form {{ grid-template-columns: 1fr; }}
+      .search-form, .summary-form, .metrics, .grid, .module-grid, .mission-form, .product-grid, .finding-grid {{ grid-template-columns: 1fr; }}
       .hero h1 {{ font-size: 34px; }}
+      .cockpit-hero h1 {{ font-size: 30px; }}
       .topbar {{ align-items: flex-start; flex-direction: column; }}
+      .site-header {{ align-items: flex-start; flex-direction: column; }}
+      .site-header nav {{ margin-left: 0; }}
       main {{ width: min(100vw - 20px, 1180px); margin: 16px auto; }}
     }}
   </style>
