@@ -12,7 +12,7 @@ A tela inicial mostra:
 
 - campo de missao em linguagem natural;
 - campo de URL da fonte oficial;
-- botao `Investigar fonte oficial`;
+- botao `Investigar Diario Oficial`;
 - exemplos clicaveis de investigacao;
 - relatorios e alertas;
 - fontes monitoradas;
@@ -46,7 +46,7 @@ Atalhos iniciais:
 http://IP_PUBLICO_DA_VPS:8000/relatorios
 ```
 
-## Investigar fonte oficial
+## Investigar Diario Oficial
 
 Use a home ou acesse diretamente:
 
@@ -57,13 +57,13 @@ http://IP_PUBLICO_DA_VPS:8000/investigar
 Com URL:
 
 ```text
-http://IP_PUBLICO_DA_VPS:8000/investigar?url=https://exemplo.gov.br/publicacoes
+http://IP_PUBLICO_DA_VPS:8000/investigar?source_url=https://exemplo.gov.br/publicacoes&mission=obras%20contratos%20aditivos%20engenharia&date_start=2026-07-01&date_end=2026-07-10&limit=50
 ```
 
-O HERMES detecta links, PDFs, endpoints e publicacoes candidatas. Depois, a coleta pode ser feita pela propria tela ou por script:
+O HERMES detecta links, PDFs e publicacoes candidatas, extrai texto, classifica achados com DeepSeek quando `DEEPSEEK_API_KEY` existe e gera relatório Markdown em `data/reports`.
 
 ```bash
-docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
+docker compose run --rm --no-deps -v /opt/hermes/data/reports:/app/data/reports api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
 ```
 
 Consultas:

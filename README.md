@@ -90,7 +90,7 @@ curl http://localhost:8000/openapi.json
 
 - `GET /`: tela inicial HERMES.
 - `GET /missao?q=...`: executa uma missao em linguagem natural e devolve resposta executiva.
-- `GET /investigar`: investiga uma URL oficial, detectando links, PDFs, endpoints e publicacoes candidatas.
+- `GET /investigar`: investiga URL de Diario Oficial ou portal publico com missao, periodo, DeepSeek opcional e relatorio Markdown.
 - `GET /fontes`: lista fontes oficiais inspecionadas.
 - `GET /publicacoes`: lista publicacoes oficiais coletadas.
 - `GET /publicacoes/resumo`: resume fontes, publicacoes, tipos e alertas.
@@ -318,7 +318,10 @@ O HERMES pode investigar uma fonte oficial informada pelo usuario:
 python scripts/inspect_publication_source.py --url https://exemplo.gov.br/publicacoes
 python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
 python scripts/check_publications_db.py
+python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
 ```
+
+Para usar DeepSeek, defina `DEEPSEEK_API_KEY` no ambiente. Sem a chave, o HERMES gera relatório deterministico com as mesmas evidencias preservadas.
 
 Na VPS:
 
@@ -326,6 +329,7 @@ Na VPS:
 cd /opt/hermes
 docker compose run --rm api alembic upgrade head
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
+docker compose run --rm --no-deps -v /opt/hermes/data/reports:/app/data/reports api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
 ```
 
 Documentacao: `docs/HERMES_PUBLICACOES_SCRAPING.md`.

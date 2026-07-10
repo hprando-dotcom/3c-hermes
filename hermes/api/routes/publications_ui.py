@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from html import escape
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from hermes.api.routes.pmsp_ui import html_page, render_error_panel, render_top_list, safe
 from hermes.database.models import PublicSource, Publication, Source
 from hermes.database.session import get_session
+from hermes.services.official_gazette_investigation import InvestigationReport, run_official_gazette_investigation
 from hermes.services.publication_collection import collect_publications_from_source, inspect_and_store_source
 
 router = APIRouter(tags=["publications-ui"])
@@ -21,20 +22,50 @@ router = APIRouter(tags=["publications-ui"])
 @router.get("/investigar", response_class=HTMLResponse, include_in_schema=False)
 def investigate_source_page(
     url: str | None = Query(default=None),
+    source_url: str | None = Query(default=None),
+    mission: str | None = Query(default=None),
+    date_start: str | None = Query(default=None),
+    date_end: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
     coletar: bool = Query(default=False),
     limite: int = Query(default=50, ge=1, le=200),
     session: Session = Depends(get_session),
 ) -> HTMLResponse:
-    if not url:
-        return html_page("Investigar fonte oficial", render_investigation_form())
+    target_url = source_url or url
+    if not target_url:
+        return html_page("Investigar Diário Oficial", render_investigation_form())
+
+    if mission:
+        try:
+            report = run_official_gazette_investigation(
+                target_url,
+                mission,
+                date_start,
+                date_end,
+                limit=limit,
+            )
+            return html_page("Investigação HERMES", render_gazette_report(report))
+        except Exception as exc:
+            body = f"""
+            <section class="panel">
+              <div class="topbar">
+                <h1>Investigação de Diário Oficial</h1>
+                <a class="button secondary" href="/">HERMES</a>
+              </div>
+              <p class="error">Falha ao executar a investigação.</p>
+              <p class="muted">{safe(exc.__class__.__name__)}: {safe(exc)}</p>
+              {render_investigation_form(target_url, mission, date_start, date_end, limit)}
+            </section>
+            """
+            return html_page("Investigação HERMES", body)
 
     try:
         if coletar:
-            collection = collect_publications_from_source(url, session=session, limit=limite)
+            collection = collect_publications_from_source(target_url, session=session, limit=limite)
             inspection = collection.get("inspection") or {}
-            body = render_collection_result(url, collection)
+            body = render_collection_result(target_url, collection)
         else:
-            stored = inspect_and_store_source(url, session=session)
+            stored = inspect_and_store_source(target_url, session=session)
             inspection = stored["inspection"]
             body = render_inspection_result(inspection)
     except SQLAlchemyError as exc:
@@ -52,6 +83,34 @@ def investigate_source_page(
         </section>
         """
     return html_page("Investigar fonte oficial", body)
+
+
+@router.post("/investigar", response_class=HTMLResponse, include_in_schema=False)
+async def investigate_source_post(request: Request) -> HTMLResponse:
+    form = parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    source_url = first_form_value(form, "source_url") or first_form_value(form, "url") or ""
+    mission = first_form_value(form, "mission") or ""
+    date_start = first_form_value(form, "date_start") or None
+    date_end = first_form_value(form, "date_end") or None
+    limit = int(first_form_value(form, "limit") or 50)
+    if not source_url or not mission:
+        return html_page("Investigar Diário Oficial", render_investigation_form(source_url or None, mission or None, date_start, date_end, limit))
+    try:
+        report = run_official_gazette_investigation(source_url, mission, date_start, date_end, limit=limit)
+        return html_page("Investigação HERMES", render_gazette_report(report))
+    except Exception as exc:
+        body = f"""
+        <section class="panel">
+          <div class="topbar">
+            <h1>Investigação de Diário Oficial</h1>
+            <a class="button secondary" href="/">HERMES</a>
+          </div>
+          <p class="error">Falha ao executar a investigação.</p>
+          <p class="muted">{safe(exc.__class__.__name__)}: {safe(exc)}</p>
+          {render_investigation_form(source_url, mission, date_start, date_end, limit)}
+        </section>
+        """
+        return html_page("Investigação HERMES", body)
 
 
 @router.get("/fontes", response_class=HTMLResponse, include_in_schema=False)
@@ -155,20 +214,102 @@ def publications_summary_page(session: Session = Depends(get_session)) -> HTMLRe
     return html_page("Resumo publicacoes", body)
 
 
-def render_investigation_form(url: str | None = None) -> str:
+def render_investigation_form(
+    source_url: str | None = None,
+    mission: str | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    limit: int = 50,
+) -> str:
     return f"""
     <section class="panel">
       <div class="topbar">
-        <h1>Investigar fonte oficial</h1>
+        <h1>Investigar Diário Oficial</h1>
         <a class="button secondary" href="/">HERMES</a>
       </div>
-      <p class="muted">Informe uma pagina oficial. O HERMES procura links, PDFs, endpoints e publicacoes candidatas.</p>
-      <form action="/investigar" method="get" class="mission-form">
-        <label>URL da fonte oficial
-          <input name="url" value="{escape(url or '')}" placeholder="https://www.prefeitura.sp.gov.br/...">
+      <p class="muted">Informe a missão, a URL do Diário Oficial ou portal público e o período. O HERMES coleta publicações, classifica os atos e gera relatório Markdown com evidências.</p>
+      <form action="/investigar" method="post" class="search-form">
+        <label>Missão
+          <textarea name="mission" rows="4" placeholder="Ex.: obras contratos aditivos engenharia">{escape(mission or '')}</textarea>
         </label>
-        <button type="submit">Investigar fonte oficial</button>
+        <label>URL da fonte oficial
+          <input name="source_url" value="{escape(source_url or '')}" placeholder="https://www.prefeitura.sp.gov.br/...">
+        </label>
+        <label>Data inicial
+          <input type="date" name="date_start" value="{escape(date_start or '')}">
+        </label>
+        <label>Data final
+          <input type="date" name="date_end" value="{escape(date_end or '')}">
+        </label>
+        <label>Limite
+          <input type="number" name="limit" value="{limit}" min="1" max="200">
+        </label>
+        <button type="submit">Investigar Diário Oficial</button>
       </form>
+    </section>
+    """
+
+
+def render_gazette_report(report: InvestigationReport) -> str:
+    findings = report.findings[:20]
+    findings_rows = "\n".join(
+        f"""
+        <tr>
+          <td>{safe(finding.title)}</td>
+          <td>{safe(finding.date or 'data desconhecida')}</td>
+          <td>{safe(finding.event_type)}</td>
+          <td>{safe(finding.natureza)}</td>
+          <td>{safe(finding.score)}</td>
+          <td>{safe(finding.agency)}</td>
+          <td>{safe(finding.company_name)}</td>
+          <td><a href="{escape(finding.link)}" target="_blank" rel="noopener">evidência</a></td>
+        </tr>
+        """
+        for finding in findings
+    )
+    if not findings_rows:
+        findings_rows = '<tr><td colspan="8"><span class="muted">Nenhum achado relevante classificado.</span></td></tr>'
+    evidence_items = "\n".join(f'<li><a href="{escape(link)}" target="_blank" rel="noopener">{safe(link)}</a></li>' for link in report.evidence_links[:30])
+    limitation_items = "\n".join(f"<li>{safe(item)}</li>" for item in report.limitations) or '<li class="muted">Nenhuma limitação registrada.</li>'
+    markdown_preview = "\n".join(report.markdown.splitlines()[:80])
+    return f"""
+    <section class="panel">
+      <div class="topbar">
+        <h1>Relatório HERMES — Investigação de Diário Oficial</h1>
+        <a class="button secondary" href="/">HERMES</a>
+      </div>
+      <p class="mission-quote">{safe(report.mission_text)}</p>
+      <div class="metrics">
+        <div><span>Links encontrados</span><strong>{report.links_found}</strong></div>
+        <div><span>Documentos analisados</span><strong>{report.documents_analyzed}</strong></div>
+        <div><span>Achados</span><strong>{len(report.findings)}</strong></div>
+      </div>
+      <section class="mini-panel">
+        <h2>Fonte e período</h2>
+        <p><strong>Fonte:</strong> {safe(report.source_url)}</p>
+        <p><strong>Período:</strong> {safe(report.date_start or 'não informado')} a {safe(report.date_end or 'não informado')}</p>
+        <p><strong>Estratégia:</strong> {safe(report.strategy)}</p>
+        <p><strong>Relatório Markdown:</strong> {safe(report.markdown_path)}</p>
+        <p><strong>IA:</strong> {'DeepSeek usado' if report.used_deepseek else 'fallback determinístico'}</p>
+      </section>
+      <section class="mini-panel">
+        <h2>Principais achados</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Título</th><th>Data</th><th>Tipo</th><th>Natureza</th><th>Score</th><th>Órgão</th><th>Empresa</th><th>Link</th></tr></thead>
+            <tbody>{findings_rows}</tbody>
+          </table>
+        </div>
+      </section>
+      <div class="grid">
+        <section class="mini-panel"><h2>Evidências</h2><ul>{evidence_items or '<li class="muted">Sem evidências.</li>'}</ul></section>
+        <section class="mini-panel"><h2>Limitações</h2><ul>{limitation_items}</ul></section>
+        <section class="mini-panel"><h2>Métricas</h2><ul>{render_metric_items(report.metrics)}</ul></section>
+      </div>
+      <section class="mini-panel">
+        <h2>Prévia do Markdown</h2>
+        <pre>{escape(markdown_preview)}</pre>
+      </section>
     </section>
     """
 
@@ -274,9 +415,20 @@ def build_collect_query(url: Any) -> str:
     return urlencode({"url": str(url or ""), "coletar": "true"})
 
 
+def first_form_value(form: dict[str, list[str]], key: str) -> str | None:
+    values = form.get(key)
+    if not values:
+        return None
+    return values[0]
+
+
 def render_item_list(title: str, items: list[Any]) -> str:
     rendered = "\n".join(f"<li>{safe(item)}</li>" for item in items) if items else '<li class="muted">Sem itens.</li>'
     return f"<section class=\"mini-panel\"><h2>{safe(title)}</h2><ul>{rendered}</ul></section>"
+
+
+def render_metric_items(metrics: dict[str, Any]) -> str:
+    return "\n".join(f"<li>{safe(key)}: <strong>{safe(value)}</strong></li>" for key, value in metrics.items())
 
 
 def top_counts(session: Session, field: Any, model: Any) -> list[tuple[str, int]]:

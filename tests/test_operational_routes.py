@@ -3,6 +3,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from hermes.api.app import create_app
 from hermes.database.session import get_session
+from hermes.services.official_gazette_investigation import GazetteFinding, InvestigationReport
 
 
 def test_version_endpoint_returns_service_metadata() -> None:
@@ -96,6 +97,38 @@ def test_publication_investigation_routes_return_html() -> None:
         assert "HERMES" in response.text or "fonte" in response.text.lower() or "publica" in response.text.lower()
 
 
+def test_investigar_get_with_query_params_uses_investigation_service(monkeypatch) -> None:
+    monkeypatch.setattr("hermes.api.routes.publications_ui.run_official_gazette_investigation", fake_investigation)
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/investigar?source_url=https://diario.exemplo.gov.br&mission=obras&date_start=2026-07-01&date_end=2026-07-10&limit=5"
+    )
+
+    assert response.status_code == 200
+    assert "Relatório HERMES" in response.text
+    assert "Contrato obras" in response.text
+
+
+def test_investigar_post_uses_investigation_service(monkeypatch) -> None:
+    monkeypatch.setattr("hermes.api.routes.publications_ui.run_official_gazette_investigation", fake_investigation)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/investigar",
+        data={
+            "source_url": "https://diario.exemplo.gov.br",
+            "mission": "obras",
+            "date_start": "2026-07-01",
+            "date_end": "2026-07-10",
+            "limit": "5",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Relatório HERMES" in response.text
+
+
 def test_tcesp_home_page_returns_html() -> None:
     client = TestClient(create_app())
     response = client.get("/tcesp")
@@ -180,3 +213,41 @@ class FailingSession:
 
     def execute(self, _statement):
         raise SQLAlchemyError("database unavailable in test")
+
+
+def fake_investigation(source_url, mission_text, date_start, date_end, limit=50, **_kwargs):
+    finding = GazetteFinding(
+        title="Contrato obras",
+        date="2026-07-10",
+        event_type="contrato",
+        natureza="obras_engenharia",
+        score=92,
+        agency="Secretaria de Obras",
+        company_name="CONSTRUTORA EXEMPLO",
+        process_number="123/2026",
+        contract_number="88/2026",
+        value_text="R$ 10,00",
+        object_text="Obras",
+        summary="Contrato de obras",
+        reason="termos encontrados",
+        matched_terms=["obras"],
+        snippet="Contrato de obras",
+        link="https://diario.exemplo.gov.br/ato",
+    )
+    return InvestigationReport(
+        source_url=source_url,
+        mission_text=mission_text,
+        date_start=date_start,
+        date_end=date_end,
+        strategy="mock",
+        mission_context={"all_terms": ["obras"]},
+        links_found=1,
+        documents_analyzed=1,
+        findings=[finding],
+        limitations=[],
+        evidence_links=[finding.link],
+        markdown="# Relatório HERMES\n\nContrato obras",
+        markdown_path="data/reports/mock.md",
+        used_deepseek=False,
+        metrics={"documents_analyzed": 1, "chunks_sent_to_ai": 0, "deepseek_calls": 0, "deepseek_failures": 0},
+    )

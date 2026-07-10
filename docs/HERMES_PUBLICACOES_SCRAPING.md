@@ -14,6 +14,18 @@ O fluxo reposiciona o HERMES como agente investigador:
 6. persiste evidencias em `publications`;
 7. mostra fontes e publicacoes na UI.
 
+Fluxo inteligente do MVP:
+
+```text
+URL + periodo + missao
+-> coleta HTML/PDF
+-> extracao de texto
+-> triagem por termos
+-> DeepSeek classifica/interpreta quando DEEPSEEK_API_KEY existe
+-> fallback deterministico quando IA indisponivel
+-> relatorio Markdown/HTML com evidencias
+```
+
 ## Camada de conectores
 
 Arquivos:
@@ -115,6 +127,44 @@ Checar banco:
 python scripts/check_publications_db.py
 ```
 
+Executar investigacao inteligente de Diario Oficial:
+
+```bash
+python scripts/run_diario_investigation.py \
+  --url "https://exemplo.gov.br/publicacoes" \
+  --mission "obras contratos aditivos engenharia" \
+  --date-start "2026-07-01" \
+  --date-end "2026-07-10" \
+  --limit 50
+```
+
+## DeepSeek
+
+A camada de IA fica em:
+
+- `hermes/services/deepseek_service.py`
+
+Variaveis:
+
+- `DEEPSEEK_API_KEY`
+- `DEEPSEEK_BASE_URL`, padrao `https://api.deepseek.com`
+- `DEEPSEEK_MODEL_FAST`, padrao `deepseek-v4-flash`
+- `DEEPSEEK_MODEL_REPORT`, padrao `deepseek-v4-pro` ou fallback para o modelo fast
+
+Sem `DEEPSEEK_API_KEY`, o HERMES continua funcionando em modo deterministico. Falhas 401, 429, 500, timeout ou JSON invalido entram como limitacao no relatorio e nao interrompem a investigacao.
+
+Serviço principal:
+
+- `hermes/services/official_gazette_investigation.py`
+
+Saida:
+
+- achados classificados;
+- evidencias com links;
+- limitacoes;
+- metricas de custo aproximadas;
+- relatorio Markdown salvo em `data/reports/`.
+
 ## Rotas web
 
 - `/investigar`: formulario e resultado de investigacao de URL oficial.
@@ -141,6 +191,7 @@ Coletar por Docker:
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/inspect_publication_source.py --url https://exemplo.gov.br/publicacoes
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
 docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/check_publications_db.py
+docker compose run --rm --no-deps -v /opt/hermes/data/reports:/app/data/reports api python scripts/run_diario_investigation.py --url https://exemplo.gov.br/publicacoes --mission "obras contratos aditivos engenharia" --date-start 2026-07-01 --date-end 2026-07-10 --limit 50
 ```
 
 ## Limites atuais

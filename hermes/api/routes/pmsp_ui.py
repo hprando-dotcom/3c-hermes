@@ -24,17 +24,23 @@ def home() -> HTMLResponse:
           <p class="eyebrow">Agente de Inteligencia sobre Publicacoes Publicas</p>
           <h1>HERMES</h1>
           <p class="lead">O HERMES investiga publicacoes publicas para voce, cruza fontes oficiais e entrega achados, alertas e relatorios acionaveis.</p>
-          <form action="/missao" method="get" class="mission-form">
-            <label>O que voce quer que o HERMES investigue?
-              <textarea name="q" rows="4" placeholder="Ex.: obras e manutencao em Sao Paulo"></textarea>
+          <form action="/investigar" method="get" class="search-form">
+            <label>Missão
+              <textarea name="mission" rows="4" placeholder="Ex.: obras contratos aditivos engenharia"></textarea>
             </label>
-            <button type="submit">Investigar</button>
-          </form>
-          <form action="/investigar" method="get" class="mission-form">
-            <label>URL da fonte oficial
-              <input name="url" placeholder="https://www.prefeitura.sp.gov.br/...">
+            <label>URL do Diário Oficial ou portal público
+              <input name="source_url" placeholder="https://www.prefeitura.sp.gov.br/...">
             </label>
-            <button type="submit">Investigar fonte oficial</button>
+            <label>Data inicial
+              <input type="date" name="date_start">
+            </label>
+            <label>Data final
+              <input type="date" name="date_end">
+            </label>
+            <label>Limite
+              <input type="number" name="limit" value="50" min="1" max="200">
+            </label>
+            <button type="submit">Investigar Diário Oficial</button>
           </form>
           <div class="example-list">
             <a class="pill" href="/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo">Obras e manutencao em Sao Paulo</a>
