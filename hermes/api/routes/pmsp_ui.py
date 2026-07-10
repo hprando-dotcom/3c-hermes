@@ -30,15 +30,24 @@ def home() -> HTMLResponse:
             </label>
             <button type="submit">Investigar</button>
           </form>
+          <form action="/investigar" method="get" class="mission-form">
+            <label>URL da fonte oficial
+              <input name="url" placeholder="https://www.prefeitura.sp.gov.br/...">
+            </label>
+            <button type="submit">Investigar fonte oficial</button>
+          </form>
           <div class="example-list">
             <a class="pill" href="/missao?q=obras%20e%20manutencao%20em%20Sao%20Paulo">Obras e manutencao em Sao Paulo</a>
             <a class="pill" href="/missao?q=fornecedores%20recorrentes%20em%20contratos%20publicos">Fornecedores recorrentes</a>
             <a class="pill" href="/missao?q=movimentacoes%20de%20saude">Movimentacoes de saude</a>
             <a class="pill" href="/missao?q=despesas%20municipais%20no%20TCE-SP">Despesas municipais no TCE-SP</a>
             <a class="pill" href="/missao?q=orgaos%20mais%20ativos">Orgaos mais ativos</a>
+            <a class="pill" href="/investigar">Investigar uma fonte oficial</a>
           </div>
           <div class="quick-actions">
             <a class="button secondary" href="/relatorios">Relatorios</a>
+            <a class="button secondary" href="/fontes">Fontes</a>
+            <a class="button secondary" href="/publicacoes">Publicacoes</a>
             <a class="button secondary" href="/status">Status</a>
             <a class="button secondary" href="/docs">OpenAPI Docs</a>
           </div>
@@ -58,7 +67,11 @@ def home() -> HTMLResponse:
           </a>
           <a class="module-card" href="/status">
             <strong>Fontes monitoradas</strong>
-            <span>PMSP Licitacoes e TCE-SP Transparencia Municipal, com PNCP e outras fontes no roadmap.</span>
+            <span>PMSP, TCE-SP e fontes oficiais inspecionadas por URL pelo agente investigador.</span>
+          </a>
+          <a class="module-card" href="/publicacoes/resumo">
+            <strong>Publicacoes oficiais</strong>
+            <span>Resumo das publicacoes coletadas por scraping, PDFs e endpoints detectados.</span>
           </a>
           <a class="module-card" href="/status">
             <strong>Status do sistema</strong>

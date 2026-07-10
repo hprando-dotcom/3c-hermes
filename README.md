@@ -12,6 +12,7 @@ O HERMES nao deve ser tratado como um formulario de consulta manual. A experienc
 - Modelagem inicial para fontes, publicacoes, versoes, arquivos, empresas, classificacoes e execucoes de coleta.
 - Modulos `collector`, `parser`, `classifier`, `scheduler`, `database`, `api`, `services`, `config`, `logs`, `scripts` e `docs`.
 - Home orientada por missao em `/`.
+- Investigacao de fonte oficial por URL em `/investigar`.
 - Rota `/missao` para investigacao heuristica inicial.
 - Relatorios em `/relatorios`.
 - Endpoints operacionais `/status`, `/health`, `/version`, `/openapi.json` e `/docs`.
@@ -89,6 +90,10 @@ curl http://localhost:8000/openapi.json
 
 - `GET /`: tela inicial HERMES.
 - `GET /missao?q=...`: executa uma missao em linguagem natural e devolve resposta executiva.
+- `GET /investigar`: investiga uma URL oficial, detectando links, PDFs, endpoints e publicacoes candidatas.
+- `GET /fontes`: lista fontes oficiais inspecionadas.
+- `GET /publicacoes`: lista publicacoes oficiais coletadas.
+- `GET /publicacoes/resumo`: resume fontes, publicacoes, tipos e alertas.
 - `GET /relatorios`: atalhos iniciais de relatorios e investigacoes recorrentes.
 - `GET /status`: status operacional, conexao com banco e totais por base.
 - `GET /health`: status do servico e conectividade com banco.
@@ -304,6 +309,26 @@ http://IP_PUBLICO_DA_VPS:8000/status
 ```
 
 Documentacao: `docs/HERMES_ARQUITETURA_PRODUTO.md`, `docs/HERMES_TCESP.md` e `README_USO.md`.
+
+## Scraping de publicacoes oficiais
+
+O HERMES pode investigar uma fonte oficial informada pelo usuario:
+
+```bash
+python scripts/inspect_publication_source.py --url https://exemplo.gov.br/publicacoes
+python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
+python scripts/check_publications_db.py
+```
+
+Na VPS:
+
+```bash
+cd /opt/hermes
+docker compose run --rm api alembic upgrade head
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
+```
+
+Documentacao: `docs/HERMES_PUBLICACOES_SCRAPING.md`.
 
 ## Principios
 

@@ -27,6 +27,35 @@ class Source(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     publications: Mapped[list[Publication]] = relationship(back_populates="source")
+    public_sources: Mapped[list[PublicSource]] = relationship(back_populates="source")
+
+
+class PublicSource(Base):
+    __tablename__ = "public_sources"
+    __table_args__ = (
+        UniqueConstraint("normalized_url", name="uq_public_sources_normalized_url"),
+        Index("ix_public_sources_source_id", "source_id"),
+        Index("ix_public_sources_status", "status"),
+        Index("ix_public_sources_last_inspected_at", "last_inspected_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    source_id: Mapped[int | None] = mapped_column(ForeignKey("sources.id", ondelete="SET NULL"))
+    url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    normalized_url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(500))
+    source_type: Mapped[str] = mapped_column(String(80), nullable=False, server_default=text("'official_site'"))
+    status: Mapped[str] = mapped_column(String(40), nullable=False, server_default=text("'active'"))
+    last_status_code: Mapped[int | None] = mapped_column(Integer)
+    content_type: Mapped[str | None] = mapped_column(String(200))
+    detected_links: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    detected_endpoints: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    last_inspected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    source: Mapped[Source | None] = relationship(back_populates="public_sources")
 
 
 class CollectionRun(Base):

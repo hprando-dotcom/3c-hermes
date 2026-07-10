@@ -11,6 +11,8 @@ http://IP_PUBLICO_DA_VPS:8000
 A tela inicial mostra:
 
 - campo de missao em linguagem natural;
+- campo de URL da fonte oficial;
+- botao `Investigar fonte oficial`;
 - exemplos clicaveis de investigacao;
 - relatorios e alertas;
 - fontes monitoradas;
@@ -43,6 +45,32 @@ Atalhos iniciais:
 ```text
 http://IP_PUBLICO_DA_VPS:8000/relatorios
 ```
+
+## Investigar fonte oficial
+
+Use a home ou acesse diretamente:
+
+```text
+http://IP_PUBLICO_DA_VPS:8000/investigar
+```
+
+Com URL:
+
+```text
+http://IP_PUBLICO_DA_VPS:8000/investigar?url=https://exemplo.gov.br/publicacoes
+```
+
+O HERMES detecta links, PDFs, endpoints e publicacoes candidatas. Depois, a coleta pode ser feita pela propria tela ou por script:
+
+```bash
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
+```
+
+Consultas:
+
+- `/fontes`
+- `/publicacoes`
+- `/publicacoes/resumo`
 
 ## TCE-SP
 

@@ -79,6 +79,23 @@ def test_reports_page_returns_html() -> None:
     assert "Relatorios" in response.text
 
 
+def test_publication_investigation_routes_return_html() -> None:
+    app = create_app()
+    app.dependency_overrides[get_session] = fake_session
+    client = TestClient(app)
+
+    for path in (
+        "/investigar",
+        "/fontes",
+        "/publicacoes",
+        "/publicacoes/resumo",
+    ):
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert "HERMES" in response.text or "fonte" in response.text.lower() or "publica" in response.text.lower()
+
+
 def test_tcesp_home_page_returns_html() -> None:
     client = TestClient(create_app())
     response = client.get("/tcesp")

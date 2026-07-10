@@ -1,0 +1,152 @@
+# HERMES - Scraping e investigacao de publicacoes oficiais
+
+## Objetivo
+
+Esta camada permite que o usuario informe a URL de uma fonte oficial e o HERMES investigue a pagina em busca de publicacoes, PDFs, links relevantes e endpoints candidatos.
+
+O fluxo reposiciona o HERMES como agente investigador:
+
+1. usuario informa uma missao e/ou URL de fonte oficial;
+2. HERMES inspeciona a fonte;
+3. detecta links, PDFs e endpoints;
+4. normaliza publicacoes candidatas;
+5. deduplica por hash;
+6. persiste evidencias em `publications`;
+7. mostra fontes e publicacoes na UI.
+
+## Camada de conectores
+
+Arquivos:
+
+- `hermes/connectors/publications/source_inspector.py`
+- `hermes/connectors/publications/html_scraper.py`
+- `hermes/connectors/publications/endpoint_scraper.py`
+- `hermes/connectors/publications/normalizer.py`
+- `hermes/connectors/publications/hashing.py`
+
+### `source_inspector.py`
+
+Baixa a URL oficial ou analisa HTML recebido em teste. Retorna:
+
+- status HTTP;
+- content-type;
+- titulo;
+- links;
+- PDFs;
+- publicacoes candidatas;
+- endpoints candidatos;
+- preview de texto visivel.
+
+### `html_scraper.py`
+
+Extrai links HTML com `html.parser` da biblioteca padrao. Marca:
+
+- links PDF;
+- links do mesmo dominio;
+- links com aparencia de publicacao oficial.
+
+### `endpoint_scraper.py`
+
+Detecta endpoints por:
+
+- referencias no HTML;
+- caminhos comuns como `/openapi.json`, `/swagger.json`, `/wp-json`, `/api/publicacoes`.
+
+Opcionalmente faz probe HTTP dos primeiros candidatos.
+
+### `normalizer.py`
+
+Converte candidatos em formato normalizado:
+
+- `source_url`;
+- `url`;
+- `title`;
+- `text`;
+- `publication_type`;
+- `published_at`;
+- `year`;
+- `links`;
+- `content_hash`;
+- `raw`.
+
+### `hashing.py`
+
+Normaliza URL e gera SHA-256 estavel para deduplicacao.
+
+## Banco de dados
+
+Tabela nova:
+
+- `public_sources`
+
+Tabela existente reutilizada:
+
+- `publications`
+
+A tabela `publications` ja existia no schema inicial do HERMES e possui campos adequados para fonte, tipo, objeto, links, payload bruto, payload normalizado, texto, hash e timestamps.
+
+Migration:
+
+- `alembic/versions/202607100001_create_public_sources.py`
+
+## Scripts
+
+Inspecionar fonte:
+
+```bash
+python scripts/inspect_publication_source.py --url https://exemplo.gov.br/publicacoes
+```
+
+Coletar publicacoes candidatas:
+
+```bash
+python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
+```
+
+Dry-run:
+
+```bash
+python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --dry-run
+```
+
+Checar banco:
+
+```bash
+python scripts/check_publications_db.py
+```
+
+## Rotas web
+
+- `/investigar`: formulario e resultado de investigacao de URL oficial.
+- `/fontes`: fontes oficiais investigadas.
+- `/publicacoes`: publicacoes coletadas.
+- `/publicacoes/resumo`: resumo de fontes, publicacoes, tipos e alertas.
+- `/status`: inclui fontes oficiais e publicacoes oficiais.
+
+## VPS
+
+Sequencia sugerida:
+
+```bash
+cd /opt/hermes
+git pull
+docker compose build api
+docker compose run --rm api alembic upgrade head
+docker compose up -d api
+```
+
+Coletar por Docker:
+
+```bash
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/inspect_publication_source.py --url https://exemplo.gov.br/publicacoes
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/collect_publications.py --url https://exemplo.gov.br/publicacoes --limite 100
+docker compose run --rm --no-deps -v /opt/hermes/logs:/app/logs api python scripts/check_publications_db.py
+```
+
+## Limites atuais
+
+- O scraping inicial e conservador e baseado em HTML, links e endpoints candidatos.
+- Nao executa JavaScript de paginas dinamicas.
+- Nao baixa conteudo integral de PDFs nesta etapa; detecta e registra links PDF.
+- Endpoints candidatos podem exigir autenticacao ou parametros.
+- A coleta pesada e controlada por `--limite`.

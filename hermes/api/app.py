@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from hermes.api.routes.health import router as health_router
 from hermes.api.routes.mission import router as mission_router
 from hermes.api.routes.pmsp_ui import router as pmsp_ui_router
+from hermes.api.routes.publications_ui import router as publications_ui_router
 from hermes.api.routes.status import router as status_router
 from hermes.api.routes.tcesp_ui import router as tcesp_ui_router
 from hermes.api.routes.version import router as version_router
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(pmsp_ui_router)
     app.include_router(mission_router)
+    app.include_router(publications_ui_router)
     app.include_router(tcesp_ui_router)
     app.include_router(status_router)
     app.include_router(health_router)

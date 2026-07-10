@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from hermes.api.routes.pmsp_ui import html_page, safe
 from hermes.config.settings import get_settings
-from hermes.database.models import PmspLicitacao, TceSpDespesa, TceSpMunicipio, TceSpReceita
+from hermes.database.models import PmspLicitacao, PublicSource, Publication, TceSpDespesa, TceSpMunicipio, TceSpReceita
 from hermes.database.session import get_session
 
 router = APIRouter(tags=["operational"])
@@ -27,6 +27,8 @@ def status_page(session: Session = Depends(get_session)) -> HTMLResponse:
         "tcesp_municipios": safe_count(session, TceSpMunicipio),
         "tcesp_despesas": safe_count(session, TceSpDespesa),
         "tcesp_receitas": safe_count(session, TceSpReceita),
+        "public_sources": safe_count(session, PublicSource),
+        "publications": safe_count(session, Publication),
     }
     alerts = build_alerts(db_ok, counts)
     body = f"""
@@ -45,6 +47,8 @@ def status_page(session: Session = Depends(get_session)) -> HTMLResponse:
         {render_count_panel("TCE-SP Municípios", counts["tcesp_municipios"])}
         {render_count_panel("TCE-SP Despesas", counts["tcesp_despesas"])}
         {render_count_panel("TCE-SP Receitas", counts["tcesp_receitas"])}
+        {render_count_panel("Fontes oficiais", counts["public_sources"])}
+        {render_count_panel("Publicacoes oficiais", counts["publications"])}
       </div>
       {render_alerts(alerts)}
       <p class="muted">Ambiente: {safe(settings.environment)} | Commit: {safe(current_commit())} | Leitura: {safe(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</p>
