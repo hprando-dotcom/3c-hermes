@@ -16,6 +16,7 @@ import httpx
 
 from hermes.connectors.publications.html_scraper import clean_text, extract_links, extract_visible_text, is_pdf_url
 from hermes.connectors.publications.hashing import stable_hash
+from hermes.connectors.tcesp.doe_tcesp_pdf import DoeTcespPdfConnector, DoeTcespSearchReport
 from hermes.services.deepseek_service import DeepSeekService
 
 FetchResult = dict[str, Any]
@@ -23,6 +24,7 @@ Fetcher = Callable[[str], FetchResult]
 
 DEFAULT_REPORT_DIR = Path("data/reports")
 DEFAULT_EXPORT_DIR = Path("data/exports")
+DEFAULT_DOE_TCESP_RAW_DIR = Path("data/raw/doe_tcesp")
 MAX_AI_CHUNKS = 12
 MAX_CHARS_PER_CHUNK = 3500
 MAX_DOCUMENT_CHARS = 40000
@@ -157,6 +159,7 @@ class InvestigationReport:
     totals: dict[str, Any] = field(default_factory=dict)
     generated_at: str = ""
     report_html: str = ""
+    structured_results: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -184,6 +187,7 @@ class InvestigationReport:
             "zip_path": self.zip_path,
             "used_deepseek": self.used_deepseek,
             "metrics": self.metrics,
+            "structured_results": self.structured_results,
         }
 
 
@@ -198,10 +202,24 @@ def run_official_gazette_investigation(
     deepseek_service: DeepSeekService | None = None,
     report_dir: Path | str = DEFAULT_REPORT_DIR,
     export_dir: Path | str | None = None,
+    raw_dir: Path | str = DEFAULT_DOE_TCESP_RAW_DIR,
 ) -> InvestigationReport:
     source_url = validate_source_url(source_url)
     limit = max(1, min(int(limit or 50), 200))
     active_fetcher = fetcher or fetch_url
+    if should_use_doe_tcesp_pdf_connector(source_url, mission_text):
+        return run_doe_tcesp_pdf_investigation(
+            source_url=source_url,
+            mission_text=mission_text,
+            date_start=date_start,
+            date_end=date_end,
+            limit=limit,
+            fetcher=active_fetcher,
+            report_dir=report_dir,
+            export_dir=export_dir,
+            raw_dir=raw_dir,
+        )
+
     deepseek = deepseek_service or DeepSeekService()
     metrics = {"documents_analyzed": 0, "chunks_sent_to_ai": 0, "deepseek_calls": 0, "deepseek_failures": 0}
     limitations: list[str] = []
@@ -328,6 +346,347 @@ def run_official_gazette_investigation(
     )
     save_dossier_files(report, paths)
     return report
+
+
+def run_doe_tcesp_pdf_investigation(
+    *,
+    source_url: str,
+    mission_text: str,
+    date_start: str | None,
+    date_end: str | None,
+    limit: int,
+    fetcher: Fetcher,
+    report_dir: Path | str,
+    export_dir: Path | str | None,
+    raw_dir: Path | str,
+) -> InvestigationReport:
+    terms = extract_doe_tcesp_search_terms(mission_text)
+    limitations: list[str] = []
+    if not terms:
+        terms = extract_doe_tcesp_fallback_terms(mission_text)
+        limitations.append("Nenhum processo TC ou termo especifico foi identificado; busca usou termos da missao.")
+    if not terms:
+        terms = ["TCESP"]
+        limitations.append("Busca DOE-TCESP sem termo especifico; resultado pode ser amplo.")
+
+    connector = DoeTcespPdfConnector(raw_dir=raw_dir, fetcher=fetcher)
+    search_report = connector.search(date_start=date_start, date_end=date_end, terms=terms, limit=limit)
+    candidate_errors = [candidate for candidate in search_report.candidates if candidate.status == "erro"]
+    for candidate in candidate_errors:
+        limitations.append(f"{candidate.url}: {candidate.error or 'erro ao consultar PDF'}")
+
+    findings = [doe_tcesp_result_to_finding(result) for result in search_report.results if result.status == "encontrado"]
+    not_found = [result for result in search_report.results if result.status == "nao_encontrado"]
+    errored = [result for result in search_report.results if result.status == "erro"]
+    if not_found:
+        limitations.append("Alguns processos/termos nao foram localizados nos PDFs consultados.")
+    if errored:
+        limitations.append("Alguns processos/termos ficaram com status erro por falha na consulta/extracao.")
+    if not findings:
+        limitations.append("Nenhum achado foi criado: nao houve evidencia oficial auditavel para os termos pesquisados.")
+
+    metrics = {
+        "documents_analyzed": len(search_report.candidates),
+        "chunks_sent_to_ai": 0,
+        "deepseek_calls": 0,
+        "deepseek_failures": 0,
+        "doe_tcesp_pdf_candidates": len(search_report.candidates),
+        "doe_tcesp_pdfs_downloaded": sum(1 for candidate in search_report.candidates if candidate.status == "baixado"),
+        "terms_requested": len(search_report.results),
+        "terms_found": len(findings),
+        "terms_not_found": len(not_found),
+        "terms_error": len(errored),
+    }
+    strategy = (
+        "DOE-TCESP PDF diario Evidencia-First: URLs oficiais por data, download do PDF, "
+        "extracao pagina a pagina com pypdf e busca deterministica por termo/processo."
+    )
+    markdown = doe_tcesp_report_markdown(
+        source_url=source_url,
+        mission_text=mission_text,
+        date_start=search_report.date_start,
+        date_end=search_report.date_end,
+        strategy=strategy,
+        search_report=search_report,
+        findings=findings,
+        limitations=limitations,
+        metrics=metrics,
+    )
+    limitations = dedupe_strings(limitations)
+    report_dir_path = Path(report_dir)
+    export_dir_path = resolve_export_dir(report_dir_path, export_dir)
+    investigation_id = create_investigation_id(report_dir_path, export_dir_path)
+    generated_at = datetime.now().isoformat(timespec="seconds")
+    paths = build_dossier_paths(investigation_id, report_dir_path, export_dir_path)
+    report_html = build_report_html_document(markdown, investigation_id=investigation_id, generated_at=generated_at)
+    evidence_links = dedupe_strings(
+        [result.page_link for result in search_report.results if result.page_link]
+        + [candidate.url for candidate in search_report.candidates if candidate.status == "baixado"]
+    )
+    report = InvestigationReport(
+        investigation_id=investigation_id,
+        source_url=source_url,
+        mission_text=mission_text,
+        date_start=search_report.date_start,
+        date_end=search_report.date_end,
+        strategy=strategy,
+        mission_context={"all_terms": search_report.terms, "connector": "doe_tcesp_pdf"},
+        links_found=0,
+        documents_analyzed=len(search_report.candidates),
+        findings=findings,
+        limitations=limitations,
+        evidence_links=evidence_links,
+        markdown=markdown,
+        markdown_path=str(paths["markdown"]),
+        report_markdown_path=str(paths["markdown"]),
+        report_html_path=str(paths["html"]),
+        csv_path=str(paths["csv"]),
+        json_path=str(paths["json"]),
+        zip_path=str(paths["zip"]),
+        used_deepseek=False,
+        metrics=metrics,
+        totals={
+            "links_found": 0,
+            "documents_analyzed": len(search_report.candidates),
+            "findings": len(findings),
+            "limitations": len(limitations),
+            "terms_found": len(findings),
+            "terms_not_found": len(not_found),
+            "terms_error": len(errored),
+        },
+        generated_at=generated_at,
+        report_html=report_html,
+        structured_results={"doe_tcesp_pdf": search_report.to_dict()},
+    )
+    save_dossier_files(report, paths)
+    return report
+
+
+def should_use_doe_tcesp_pdf_connector(source_url: str, mission_text: str) -> bool:
+    host = urlsplit(source_url).netloc.lower()
+    if host == "doe.tce.sp.gov.br":
+        return True
+    text = strip_accents_local(mission_text).casefold()
+    trigger_terms = (
+        "tce-sp",
+        "tcesp",
+        "tribunal de contas do estado de sao paulo",
+        "acordao",
+        "acordaos",
+    )
+    if any(term in text for term in trigger_terms):
+        return True
+    return bool(re.search(r"\bTC-\d{6}\.989\.\d{2}-\d\b", mission_text, flags=re.IGNORECASE))
+
+
+def extract_doe_tcesp_search_terms(mission_text: str) -> list[str]:
+    terms: list[str] = []
+    terms.extend(re.findall(r"\bTC-\d{6}\.989\.\d{2}-\d\b", mission_text, flags=re.IGNORECASE))
+    terms.extend(re.findall(r"\b\d{1,3}\.\d{3}/\d{4}\b", mission_text))
+    terms.extend(re.findall(r"[\"'“”]([^\"'“”]{3,100})[\"'“”]", mission_text))
+    for match in re.finditer(r"\b[A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+){1,3}\b", mission_text):
+        phrase = clean_text(match.group(0))
+        normalized = strip_accents_local(phrase).casefold()
+        if normalized in {"tribunal de contas", "estado de sao", "sao paulo"}:
+            continue
+        if "tribunal de contas" in normalized:
+            continue
+        terms.append(phrase)
+    return dedupe_strings(terms)
+
+
+def extract_doe_tcesp_fallback_terms(mission_text: str) -> list[str]:
+    generic = {
+        "acordao",
+        "acordaos",
+        "processo",
+        "processos",
+        "procure",
+        "pesquise",
+        "publicacao",
+        "publicacoes",
+        "tribunal",
+        "contas",
+        "estado",
+        "sao",
+        "paulo",
+        "tce",
+        "tcesp",
+    }
+    terms = []
+    for term in extract_mission_terms(mission_text):
+        if strip_accents_local(term).casefold() not in generic:
+            terms.append(term)
+    return dedupe_strings(terms[:12])
+
+
+def doe_tcesp_result_to_finding(result: Any) -> GazetteFinding:
+    process_number = result.term if re.search(r"\bTC-\d{6}\.989\.\d{2}-\d\b", result.term, flags=re.IGNORECASE) else None
+    date_text = result.publication_date or result.availability_date or result.issue_date
+    return GazetteFinding(
+        title=f"DOE-TCESP - {result.term}",
+        date=date_text,
+        event_type="juridico",
+        natureza="tcesp",
+        score=100,
+        agency="Tribunal de Contas do Estado de Sao Paulo",
+        company_name=None,
+        process_number=process_number,
+        contract_number=None,
+        value_text=None,
+        object_text=None,
+        summary=(
+            f"{result.term} encontrado no DOE-TCESP"
+            f"{' na pagina ' + str(result.page) if result.page else ''}."
+        ),
+        reason="Termo/processo localizado em PDF oficial diario do DOE-TCESP.",
+        matched_terms=[result.term],
+        snippet=result.snippet or "",
+        link=result.page_link or result.pdf_url or "",
+    )
+
+
+def doe_tcesp_report_markdown(
+    *,
+    source_url: str,
+    mission_text: str,
+    date_start: str,
+    date_end: str,
+    strategy: str,
+    search_report: DoeTcespSearchReport,
+    findings: list[GazetteFinding],
+    limitations: list[str],
+    metrics: dict[str, Any],
+) -> str:
+    found_results = [result for result in search_report.results if result.status == "encontrado"]
+    missing_results = [result for result in search_report.results if result.status == "nao_encontrado"]
+    error_results = [result for result in search_report.results if result.status == "erro"]
+    lines = [
+        "# Relatório HERMES — Investigação DOE-TCESP",
+        "",
+        "## 1. Missão",
+        mission_text or "-",
+        "",
+        "## 2. Fonte analisada",
+        source_url,
+        "",
+        "## 3. Período consultado",
+        f"{date_start} a {date_end}",
+        "",
+        "## 4. Estratégia usada",
+        strategy,
+        "",
+        "## 5. Resumo executivo",
+        build_doe_tcesp_summary(search_report),
+        "",
+        "## 6. Processos/termos localizados",
+    ]
+    if found_results:
+        for result in found_results:
+            lines.extend(
+                [
+                    f"### {result.term}",
+                    "- Status: encontrado",
+                    f"- Data de disponibilização: {result.availability_date or '-'}",
+                    f"- Data de publicação legal: {result.publication_date or '-'}",
+                    f"- Data da edição/PDF: {result.issue_date or '-'}",
+                    f"- Edição: {result.edition or '-'}",
+                    f"- Página: {result.page or '-'}",
+                    f"- Link direto do PDF: {result.page_link or result.pdf_url or '-'}",
+                    f"- PDF bruto salvo: {result.raw_pdf_path or '-'}",
+                    f"- Texto extraído: {result.text_path or '-'}",
+                    f"- Trecho de evidência: {result.snippet or '-'}",
+                    "",
+                ]
+            )
+            if len(result.occurrences) > 1:
+                pages = ", ".join(str(item.get("page")) for item in result.occurrences if item.get("page"))
+                lines.extend([f"- Outras ocorrências/páginas: {pages or '-'}", ""])
+    else:
+        lines.extend(["Nenhum processo/termo foi localizado com evidência oficial auditável.", ""])
+
+    lines.extend(["## 7. Processos/termos não localizados"])
+    if missing_results:
+        for result in missing_results:
+            lines.extend(
+                [
+                    f"### {result.term}",
+                    "- Status: nao_encontrado",
+                    f"- Período consultado: {result.period_start} a {result.period_end}",
+                    f"- Motivo: {result.motivo or '-'}",
+                    "- PDFs consultados:",
+                ]
+            )
+            lines.extend([f"  - {url}" for url in result.pdfs_consultados] or ["  - Nenhum PDF consultado."])
+            lines.append("")
+    else:
+        lines.extend(["Nenhum termo ficou com status nao_encontrado.", ""])
+
+    if error_results:
+        lines.extend(["## 8. Processos/termos com erro"])
+        for result in error_results:
+            lines.extend(
+                [
+                    f"### {result.term}",
+                    "- Status: erro",
+                    f"- Período consultado: {result.period_start} a {result.period_end}",
+                    f"- Motivo: {result.motivo or '-'}",
+                    "",
+                ]
+            )
+    else:
+        lines.extend(["## 8. Processos/termos com erro", "Nenhum termo ficou com status erro.", ""])
+
+    lines.extend(
+        [
+            "## 9. PDFs consultados",
+            f"- Total de URLs candidatas: {len(search_report.candidates)}",
+            f"- PDFs baixados: {sum(1 for item in search_report.candidates if item.status == 'baixado')}",
+        ]
+    )
+    for candidate in search_report.candidates:
+        detail = f"{candidate.url} — {candidate.status}"
+        if candidate.pages_count:
+            detail += f" — {candidate.pages_count} páginas"
+        if candidate.raw_pdf_path:
+            detail += f" — bruto: {candidate.raw_pdf_path}"
+        if candidate.error:
+            detail += f" — erro: {candidate.error}"
+        lines.append(f"- {detail}")
+
+    lines.extend(["", "## 10. Evidências"])
+    evidence_links = dedupe_strings([finding.link for finding in findings])
+    lines.extend([f"- {link}" for link in evidence_links] or ["- Nenhuma evidência com link."])
+    lines.extend(["", "## 11. Limitações"])
+    lines.extend([f"- {item}" for item in dedupe_strings(limitations)] or ["- Nenhuma limitação registrada."])
+    lines.extend(["", "## 12. Métricas"])
+    lines.extend([f"- {key}: {value}" for key, value in metrics.items()])
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_doe_tcesp_summary(search_report: DoeTcespSearchReport) -> str:
+    found = [result for result in search_report.results if result.status == "encontrado"]
+    missing = [result for result in search_report.results if result.status == "nao_encontrado"]
+    errored = [result for result in search_report.results if result.status == "erro"]
+    downloaded = [candidate for candidate in search_report.candidates if candidate.status == "baixado"]
+    if found:
+        return (
+            f"Foram localizados {len(found)} de {len(search_report.results)} processos/termos em PDFs oficiais do DOE-TCESP. "
+            f"O HERMES consultou {len(search_report.candidates)} URLs candidatas, baixou {len(downloaded)} PDFs oficiais "
+            "e preservou links diretos com página, trecho e metadados de publicação."
+        )
+    return (
+        f"Nenhum achado foi confirmado para {len(search_report.results)} processos/termos. "
+        f"O HERMES consultou {len(search_report.candidates)} URLs candidatas; "
+        f"{len(missing)} ficaram nao_encontrados e {len(errored)} ficaram com erro."
+    )
+
+
+def strip_accents_local(value: str) -> str:
+    import unicodedata
+
+    return "".join(char for char in unicodedata.normalize("NFKD", value or "") if not unicodedata.combining(char))
 
 
 def validate_source_url(source_url: str) -> str:
